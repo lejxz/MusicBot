@@ -48,8 +48,6 @@ A fully-functional Discord music bot with 23 slash commands supporting YouTube a
 #### Documentation
 - ✅ README_NEW.md - Full feature documentation
 - ✅ SETUP_GUIDE.md - Installation & configuration
-- ✅ PRIVACY_POLICY.md - Data handling details
-- ✅ TERMS_OF_SERVICE.md - Usage guidelines
 - ✅ LICENSE - MIT License
 
 ---
@@ -89,8 +87,6 @@ Discord Music Bot/
 ├── .env.example           # Config template
 ├── .gitignore             # Git ignore rules
 ├── LICENSE                # MIT License
-├── PRIVACY_POLICY.md      # Privacy policy
-├── TERMS_OF_SERVICE.md    # Terms of service
 ├── README_NEW.md          # Full documentation
 └── SETUP_GUIDE.md         # Setup instructions
 ```
