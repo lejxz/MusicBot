@@ -76,6 +76,19 @@ F. Logs and troubleshooting
 - Tail logs: `sudo journalctl -u discord-music-bot -f` (if systemd), or `tail -f bot.log` if launching in terminal.
 - Common errors: missing `ffmpeg` (install via apt), missing `DISCORD_TOKEN` in `.env`, missing Python dependencies (`pip install -r requirements.txt`).
 
+G. 24/7 operation and monitoring
+- A plain terminal session stops when the terminal closes, so use `systemd` for true 24/7 Linux hosting.
+- Recommended monitoring commands:
+
+```bash
+sudo systemctl status discord-music-bot
+sudo journalctl -u discord-music-bot -f
+tail -f logs/bot.log
+```
+
+- The bot writes logs to `logs/bot.log` and keeps 7 days of history automatically.
+- If you use the one-command installer with `--systemd`, the bot will also restart on reboot and after crashes.
+
 ---
 
 ## 2) Windows (PowerShell)
@@ -125,6 +138,18 @@ F. Run automatically on Windows startup (two options)
 1) Task Scheduler (simple): create a task that runs on user login and starts: `C:\path\to\venv\Scripts\python.exe C:\path\to\index.py`.
 
 2) NSSM (recommended for services): install NSSM (Non-Sucking Service Manager) and create a Windows service to run the Python executable with `index.py` as the argument.
+
+G. 24/7 operation and monitoring
+- A normal terminal session stops when the terminal closes, so use Task Scheduler or NSSM for 24/7 Windows hosting.
+- Recommended monitoring commands:
+
+```powershell
+schtasks /Query /TN DiscordMusicBot
+Get-Content .\logs\bot.log -Wait
+```
+
+- The bot writes logs to `logs/bot.log` and keeps 7 days of history automatically.
+- If you use `install.ps1 -CreateTask`, the bot can start at logon and survive terminal closure.
  
 You can also create a Scheduled Task from PowerShell using the installer:
 

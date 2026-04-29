@@ -40,6 +40,7 @@ A slash-command Discord music bot with YouTube and Spotify support, queue manage
 - Clean, consistent embeds
 - Deafens itself by default when joining voice
 - Fully slash-command based, no prefix commands
+- For 24/7 hosting, use `systemd` on Linux or Task Scheduler/NSSM on Windows instead of keeping a terminal open
 
 ## Installation
 
