@@ -106,7 +106,11 @@ requirements.txt Python dependencies
 - **Spotify Support**: 
   - **Individual tracks** work with any Spotify account (free or premium)
   - **Playlists & Albums** require a PREMIUM Spotify account for direct API access
-  - **Workaround**: If you use a free Spotify account, playlists will automatically fall back to YouTube playlist search using the playlist name. Tracks will play from YouTube instead but the queue will still work normally.
+  - **Smart workaround for free accounts**: Bot attempts three fallback strategies:
+    1. Try to fetch actual track list via alternative API method (might work in some cases)
+    2. If available, get playlist metadata for partial info
+    3. Search YouTube by playlist name as final fallback (tracks play from YouTube)
+  - Users with free accounts can still use playlists, just with YouTube audio source
 
 ## License
 

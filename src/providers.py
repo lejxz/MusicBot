@@ -690,13 +690,19 @@ class SpotifyProvider:
                 if 'premium' in error_str or '403' in error_str:
                     logger.info(
                         f"Spotify playlist access denied (free account detected). "
-                        f"Falling back to YouTube playlist search for '{spotify_url}'..."
+                        f"Attempting alternative methods to fetch tracks..."
                     )
-                    # Try to get playlist name via oEmbed for fallback search
+                    # Try to get tracks via direct API endpoint without spotipy library
+                    api_tracks = await self._fetch_playlist_tracks_via_api(playlist_id, limit)
+                    if api_tracks:
+                        logger.info(f"Successfully fetched {len(api_tracks)} tracks via alternative API method")
+                        return api_tracks
+                    
+                    # Fallback: get playlist name via oEmbed and search YouTube
                     metadata = await self._fetch_oembed_metadata(spotify_url)
                     if metadata and 'title' in metadata:
                         playlist_name = metadata['title']
-                        logger.info(f"Using oEmbed metadata, searching YouTube for: {playlist_name}")
+                        logger.info(f"Falling back to YouTube search for playlist: {playlist_name}")
                         yt_tracks = await self._search_youtube_playlist_by_name(playlist_name, limit)
                         if yt_tracks:
                             return yt_tracks
@@ -840,6 +846,112 @@ class SpotifyProvider:
             )
         except asyncio.TimeoutError:
             logger.warning(f"YouTube playlist search timed out for '{playlist_name}'")
+            return []
+    
+    async def _fetch_playlist_tracks_via_api(self, playlist_id: str, limit: int = 100) -> List[Track]:
+        """Attempt to fetch playlist tracks via direct HTTP calls to Spotify API
+        
+        This tries alternative approaches when spotipy fails with 403:
+        1. Fetch playlist metadata (might contain track preview)
+        2. Try market-specific or alternative requests
+        3. Check if any track info is available in the response
+        """
+        try:
+            token = await self._get_access_token()
+            if not token:
+                logger.debug("No token available for alternative API fetch")
+                return []
+            
+            headers = {'Authorization': f'Bearer {token}'}
+            
+            # Try to get basic playlist info first (might have track preview)
+            async with aiohttp.ClientSession() as session:
+                try:
+                    async with session.get(
+                        f'https://api.spotify.com/v1/playlists/{playlist_id}',
+                        headers=headers,
+                        timeout=aiohttp.ClientTimeout(total=10)
+                    ) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            tracks_info = data.get('tracks', {})
+                            logger.debug(f"Playlist metadata: {tracks_info.get('total', 0)} total tracks")
+                        elif resp.status == 403:
+                            logger.debug("Playlist metadata also restricted (403)")
+                            return []
+                except Exception as e:
+                    logger.debug(f"Failed to fetch playlist metadata: {e}")
+                    return []
+                
+                # Try fetching tracks with various parameters that might bypass restrictions
+                tracks = []
+                offset = 0
+                page_size = min(50, limit)
+                
+                while len(tracks) < limit:
+                    params = {
+                        'limit': min(page_size, limit - len(tracks)),
+                        'offset': offset,
+                        'fields': 'items(track(name,id,duration_ms,external_urls,artists(name),album(images))),next',
+                    }
+                    
+                    try:
+                        async with session.get(
+                            f'https://api.spotify.com/v1/playlists/{playlist_id}/tracks',
+                            headers=headers,
+                            params=params,
+                            timeout=aiohttp.ClientTimeout(total=10)
+                        ) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                items = data.get('items', [])
+                                
+                                if not items:
+                                    break
+                                
+                                for item in items:
+                                    track_data = item.get('track') or {}
+                                    if not track_data or not track_data.get('id'):
+                                        continue
+                                    
+                                    tracks.append(
+                                        Track(
+                                            title=track_data.get('name', 'Unknown'),
+                                            url=track_data.get('external_urls', {}).get('spotify', 
+                                                  f"https://open.spotify.com/track/{track_data['id']}"),
+                                            duration=track_data.get('duration_ms', 0) // 1000,
+                                            source='spotify',
+                                            artist=', '.join([a['name'] for a in track_data.get('artists', [])]),
+                                            thumbnail=track_data.get('album', {}).get('images', [{}])[0].get('url', ''),
+                                            platform_badge='🎵 Spotify',
+                                        )
+                                    )
+                                
+                                if not data.get('next') or len(tracks) >= limit:
+                                    break
+                                offset += len(items)
+                            elif resp.status == 403:
+                                logger.debug(f"Tracks endpoint returned 403 at offset {offset}")
+                                break
+                            else:
+                                logger.debug(f"Tracks endpoint returned {resp.status}")
+                                break
+                    except asyncio.TimeoutError:
+                        logger.warning("Timeout fetching playlist tracks via API")
+                        break
+                    except Exception as e:
+                        logger.debug(f"Error fetching playlist tracks: {str(e)[:100]}")
+                        break
+                
+                if tracks:
+                    logger.info(f"Successfully fetched {len(tracks)} tracks via alternative API method")
+                    return tracks
+                else:
+                    logger.debug("Alternative API method returned no tracks")
+                    return []
+        
+        except Exception as e:
+            logger.debug(f"Alternative API fetch failed: {str(e)[:100]}")
             return []
 
     async def get_album_tracks(self, spotify_url: str, limit: int = 100) -> List[Track]:
