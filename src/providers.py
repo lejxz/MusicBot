@@ -629,7 +629,10 @@ class SpotifyProvider:
         return None
 
     async def get_playlist_tracks(self, spotify_url: str, limit: int = 100) -> List[Track]:
-        """Extract track metadata from a Spotify playlist link"""
+        """Extract track metadata from a Spotify playlist link
+        
+        Falls back to YouTube playlist search if Spotify API access fails (e.g., free account)
+        """
         resource_type, playlist_id = self._parse_spotify_url(spotify_url)
         if resource_type != "playlist" or not playlist_id:
             return []
@@ -685,10 +688,18 @@ class SpotifyProvider:
             except Exception as e:
                 error_str = str(e).lower()
                 if 'premium' in error_str or '403' in error_str:
-                    logger.warning(
-                        f"Spotify playlist access denied. Ensure your Spotify credentials are from a PREMIUM account. "
-                        f"Free accounts cannot access playlist items via API. Error: {e}"
+                    logger.info(
+                        f"Spotify playlist access denied (free account detected). "
+                        f"Falling back to YouTube playlist search for '{spotify_url}'..."
                     )
+                    # Try to get playlist name via oEmbed for fallback search
+                    metadata = await self._fetch_oembed_metadata(spotify_url)
+                    if metadata and 'title' in metadata:
+                        playlist_name = metadata['title']
+                        logger.info(f"Using oEmbed metadata, searching YouTube for: {playlist_name}")
+                        yt_tracks = await self._search_youtube_playlist_by_name(playlist_name, limit)
+                        if yt_tracks:
+                            return yt_tracks
                 else:
                     logger.warning(f"spotipy playlist lookup failed for {spotify_url}: {e}")
                 tracks = []
@@ -753,6 +764,83 @@ class SpotifyProvider:
                     offset += len(items)
 
         return tracks
+    
+    async def _search_youtube_playlist_by_name(self, playlist_name: str, limit: int = 100) -> List[Track]:
+        """Search YouTube for a playlist matching the given name and extract its tracks"""
+        loop = asyncio.get_event_loop()
+        
+        def _search_youtube_playlist():
+            try:
+                ydl_opts = {
+                    'format': 'bestaudio/best',
+                    'quiet': True,
+                    'no_warnings': True,
+                    'default_search': 'ytsearch',
+                    'socket_timeout': 30,
+                    'extract_flat': False,
+                }
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    # Search for the playlist on YouTube
+                    search_query = f"ytsearch1:{playlist_name} playlist"
+                    results = ydl.extract_info(search_query, download=False)
+                    
+                    if not results or not results.get('entries'):
+                        logger.warning(f"No YouTube playlists found for '{playlist_name}'")
+                        return []
+                    
+                    # Get the first result (should be a playlist or video)
+                    first_result = results['entries'][0]
+                    
+                    # If it's a video, try to extract its playlist
+                    if '_type' not in first_result or first_result.get('_type') != 'playlist':
+                        logger.debug(f"YouTube search returned a video, not a playlist. Trying direct search...")
+                        return []
+                    
+                    # Extract playlist tracks
+                    playlist_url = first_result.get('webpage_url') or first_result.get('url')
+                    if not playlist_url:
+                        return []
+                    
+                    logger.info(f"Found YouTube playlist: {first_result.get('title')}")
+                    
+                    # Now fetch the full playlist
+                    info = ydl.extract_info(playlist_url, download=False)
+                    entries = info.get('entries', []) or []
+                    
+                    tracks = []
+                    for i, entry in enumerate(entries):
+                        if not entry or i >= limit:
+                            break
+                        
+                        if entry.get('availability') == 'needs_auth':
+                            logger.debug(f"Skipping private video in YouTube playlist")
+                            continue
+                        
+                        tracks.append(
+                            Track(
+                                title=entry.get('title', 'Unknown'),
+                                url=entry.get('webpage_url') or entry.get('url') or f"https://www.youtube.com/watch?v={entry.get('id')}",
+                                duration=entry.get('duration', 0),
+                                source='youtube',
+                                artist=entry.get('uploader', 'Unknown'),
+                                thumbnail=entry.get('thumbnail', ''),
+                                platform_badge='🎥 YouTube (Playlist Fallback)',
+                            )
+                        )
+                    
+                    return tracks
+            except Exception as e:
+                logger.warning(f"YouTube playlist search failed for '{playlist_name}': {str(e)[:100]}")
+                return []
+        
+        try:
+            return await asyncio.wait_for(
+                loop.run_in_executor(None, _search_youtube_playlist),
+                timeout=30.0
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"YouTube playlist search timed out for '{playlist_name}'")
+            return []
 
     async def get_album_tracks(self, spotify_url: str, limit: int = 100) -> List[Track]:
         """Extract track metadata from a Spotify album link"""

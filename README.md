@@ -103,7 +103,10 @@ requirements.txt Python dependencies
 - Audio cache lives in `cache/`.
 - Logs are written to `logs/bot.log`.
 - The bot uses `ffmpeg` and Discord voice support, so make sure those system dependencies are installed.
-- **Spotify Playlists/Albums**: Requires a **PREMIUM Spotify account** for API access to playlist items. Free Spotify accounts cannot use the Spotify API for playlist/album metadata. If you see "403 - Active premium subscription required" errors, upgrade your Spotify app account (or create a business account) that's linked to your Client ID and Secret.
+- **Spotify Support**: 
+  - **Individual tracks** work with any Spotify account (free or premium)
+  - **Playlists & Albums** require a PREMIUM Spotify account for direct API access
+  - **Workaround**: If you use a free Spotify account, playlists will automatically fall back to YouTube playlist search using the playlist name. Tracks will play from YouTube instead but the queue will still work normally.
 
 ## License
 
