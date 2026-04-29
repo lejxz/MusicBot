@@ -2,7 +2,7 @@
 Discord Music Bot - Main Bot File
 """
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 import logging
 import os
 import shutil
@@ -31,7 +31,29 @@ class MusicBot(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.music_player = MusicPlayer(bot)
+        self.cache = AudioCache()
+        self.periodic_cache_cleanup.start()
     
+    def cog_unload(self):
+        """Stop background tasks when cog is unloaded"""
+        self.periodic_cache_cleanup.cancel()
+    
+    @tasks.loop(hours=24)
+    async def periodic_cache_cleanup(self):
+        """Automatically clean up old cache files every 24 hours (for 24/7 efficiency)"""
+        try:
+            removed = await self.cache.clear_old_cache(max_age_days=7)
+            total_size_mb = await self.cache.get_cache_size() / (1024 * 1024)
+            logger.info(f"Cache cleanup: Removed {removed} old files. Cache size: {total_size_mb:.2f} MB")
+        except Exception as e:
+            logger.warning(f"Periodic cache cleanup failed: {e}")
+    
+    @periodic_cache_cleanup.before_loop
+    async def before_cache_cleanup(self):
+        """Ensure bot is ready before starting the cleanup loop"""
+        await self.bot.wait_until_ready()
+    
+
     # Play Command
     @discord.app_commands.command(name="play", description="Play a track from YouTube or Spotify")
     @discord.app_commands.describe(
@@ -201,13 +223,15 @@ async def main():
     
     # Load cogs
     await load_cogs(bot)
-    # Clean local audio cache on each run to avoid using excess storage
+    
+    # Initialize cache (startup cleanup of files older than 7 days)
     try:
         cache = AudioCache()
-        removed = await cache.clear_all_cache()
-        logger.info("Cleared %d cached files on startup", removed)
+        removed = await cache.clear_old_cache(max_age_days=7)
+        cache_size_mb = await cache.get_cache_size() / (1024 * 1024)
+        logger.info(f"Cache initialized: Removed {removed} old files. Current size: {cache_size_mb:.2f} MB")
     except Exception as e:
-        logger.warning("Cache cleanup failed: %s", e)
+        logger.warning("Cache initialization failed: %s", e)
     
     # Run bot
     try:

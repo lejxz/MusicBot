@@ -34,13 +34,14 @@ A slash-command Discord music bot with YouTube and Spotify support, queue manage
 
 - Multi-source playback with YouTube and Spotify
 - Spotify playlists and albums are supported
-- Local audio caching for faster repeat playback
-- Automatic cache cleanup on startup
+- **Local audio caching** for faster repeat playback (intelligently cleaned)
+- **Automatic cache cleanup**: Runs every 24 hours, removes files older than 7 days
+- **Storage optimized for 24/7 operation**: Cache grows only while new content is played, old files auto-removed
 - Rotating logs stored in `logs/` with 7-day retention
 - Clean, consistent embeds
 - Deafens itself by default when joining voice
 - Fully slash-command based, no prefix commands
-- For 24/7 hosting, use `systemd` on Linux or Task Scheduler/NSSM on Windows instead of keeping a terminal open
+- For 24/7 hosting, use `systemd` on Linux or Task Scheduler/NSSM on Windows
 
 ## Installation
 
@@ -100,8 +101,15 @@ requirements.txt Python dependencies
 ## Notes
 
 - Keep `.env` out of git.
-- Audio cache lives in `cache/`.
-- Logs are written to `logs/bot.log`.
+- **Audio cache** (`cache/` directory):
+  - Stores downloaded MP3 files for faster repeat playback
+  - **Automatically cleaned every 24 hours** — removes files older than 7 days
+  - At startup, removes any files that exceed 7-day age limit
+  - Perfect for 24/7 operation: storage usage stays bounded and predictable
+  - Frequently played songs stay cached, old ones are auto-removed
+- **Logs** (`logs/bot.log`):
+  - Rotating file handler keeps 7 days of logs
+  - New log file each day, old ones auto-deleted after 7 days
 - The bot uses `ffmpeg` and Discord voice support, so make sure those system dependencies are installed.
 - **Spotify Support**: 
   - **Individual tracks** work with any Spotify account (free or premium)
