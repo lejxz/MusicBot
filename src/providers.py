@@ -681,8 +681,16 @@ class SpotifyProvider:
                     if not page.get('next'):
                         break
                     offset += len(items)
+                return tracks
             except Exception as e:
-                logger.warning(f"spotipy playlist lookup failed for {spotify_url}: {e}")
+                error_str = str(e).lower()
+                if 'premium' in error_str or '403' in error_str:
+                    logger.warning(
+                        f"Spotify playlist access denied. Ensure your Spotify credentials are from a PREMIUM account. "
+                        f"Free accounts cannot access playlist items via API. Error: {e}"
+                    )
+                else:
+                    logger.warning(f"spotipy playlist lookup failed for {spotify_url}: {e}")
                 tracks = []
 
         if tracks:
