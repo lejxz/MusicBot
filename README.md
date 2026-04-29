@@ -1,72 +1,108 @@
-lets redo it, as it will only be run locally and a copy of it in github. The music bot will include all necessary commands, using slash commands only from discord, no prefix.
+# Discord Music Bot
 
-See [INSTALL.md](INSTALL.md) for final cross-platform installation instructions.
+A slash-command Discord music bot with YouTube and Spotify support, queue management, playback controls, lyrics, caching, and clean embeds.
 
-🎵 Core Playback
-/play <song/URL> – Plays a track from YouTube, Spotify
+## Features
 
-/pause – Pauses the current track.
+### Playback
+- `/play <song or URL>` - Play from YouTube, Spotify, or search query
+- `/pause` - Pause current playback
+- `/resume` - Resume playback
+- `/stop` - Stop playback and clear the queue
+- `/skip` - Skip the current track
+- `/previous` - Play the previous track
 
-/resume – Resumes paused playback.
+### Queue
+- `/queue` - Show the current queue
+- `/remove <position>` - Remove a track from the queue
+- `/clear` - Clear the queue
+- `/shuffle` - Shuffle the queue
+- `/loop` - Toggle loop mode
+- `/move <from> <to>` - Reorder tracks
 
-/stop – Stops playback and clears the queue.
+### Audio and Info
+- `/volume <level>` - Set playback volume
+- `/seek <time>` - Jump to a timestamp in the track
+- `/lyrics <song>` - Fetch lyrics for the current or a specified track
+- `/np` - Show the current now playing track
+- `/join` - Join your voice channel
+- `/leave` - Leave the voice channel
+- `/help` - Show command help
+- `/ping` - Check bot latency
 
-/skip – Skips the current track.
+## Highlights
 
-/previous – Plays the previous track (optional but useful).
+- Multi-source playback with YouTube and Spotify
+- Spotify playlists and albums are supported
+- Local audio caching for faster repeat playback
+- Automatic cache cleanup on startup
+- Rotating logs stored in `logs/` with 7-day retention
+- Clean, consistent embeds
+- Deafens itself by default when joining voice
+- Fully slash-command based, no prefix commands
 
-📋 Queue Management
-/queue – Displays the current song queue.
+## Installation
 
-/remove <position> – Removes a specific track from the queue.
+See [INSTALL.md](INSTALL.md) for full Windows and Linux setup instructions.
 
-/clear – Clears the entire queue.
+Quick start on Linux:
+```bash
+./install.sh --run
+```
 
-/shuffle – Randomizes the order of songs in the queue.
+Quick start on Windows PowerShell:
+```powershell
+PowerShell -ExecutionPolicy Bypass -File install.ps1 -Run
+```
 
-/loop – Toggles looping (single track or entire queue).
+## Configuration
 
-/move <from> <to> – Reorders tracks in the queue.
+Create a `.env` file from `.env.example` and fill in your values.
 
-🔊 Audio Controls
-/volume <level> – Adjusts playback volume.
+Required:
+- `DISCORD_TOKEN`
 
-/seek <time> – Jumps to a specific timestamp in the current track.
+Optional:
+- `SPOTIFY_CLIENT_ID`
+- `SPOTIFY_CLIENT_SECRET`
+- `GENIUS_ACCESS_TOKEN`
+- `YOUTUBE_API_KEY`
 
-/lyrics <song> – Fetches lyrics for the current or specified track.
+## Running
 
-⚙️ Utility & Info
-/np (Now Playing) – Shows details of the current track.
+Start the bot:
+```bash
+python index.py
+```
 
-/join – Makes the bot join your voice channel.
+Run tests:
+```bash
+python -m pytest -q
+```
 
-/leave – Disconnects the bot from the voice channel.
+## Project Structure
 
-/help – Lists all available commands.
+```text
+commands/        Slash command handlers
+events/          Event handlers and UI buttons
+src/             Core services (player, queue, providers, cache, embeds)
+tests/           Unit tests
+index.py         Main bot entry point
+config.py        Environment configuration
+install.sh       Linux installer
+install.ps1      Windows installer
+INSTALL.md       Cross-platform setup guide
+requirements.txt Python dependencies
+.env.example     Example environment file
+```
 
-/ping – Checks bot latency.
+## Notes
 
+- Keep `.env` out of git.
+- Audio cache lives in `cache/`.
+- Logs are written to `logs/bot.log`.
+- The bot uses `ffmpeg` and Discord voice support, so make sure those system dependencies are installed.
 
-The music bot should be multi-source with both Spotify and YouTube support, including albums and playlists.
+## License
 
-
-Capability	Details
-🎛️ Dynamic - Embeds	Auto-refreshing "Now Playing" cards with cover art, platform badges, queue countdowns, and localized metadata.
-🪄 Smart Queue	- Instant mix-ins, sequential preloading, shuffle with DJ-only guardrails, and playlist collapsing to keep channels tidy.
-🔁 Loop Modes	- Three-way loop toggle: Off, Track Repeat (endless current song), or Queue Repeat (restart queue when finished).
-🎲 Autoplay Engine	- Genre-aware autoplay with intelligent recommender  and the bot automatically queues matching music when your queue ends, filtering out tutorials, podcasts, and non-music content with smart duration and keyword detection.
-💾 Local Audio Cache	- All tracks are pre-downloaded and cached locally to eliminate stream interruptions, network lag, and voice crackling—delivering buffer-free playback even during peak Discord load or ISP throttling.
-🛡️ Resilient Playback	- Voice connection watchdog, stream retry logic, idle auto-disconnect, and graceful SIGINT shutdown.
-🧠 Localization -	Cached translations via node-json-db with runtime language switching and fallback logic.
-📜 Static Lyrics	- Fetches lyrics from Genius (web scraping) with LRCLIB fallback—button-only display with pagination support.
-
-
-
-├── commands/           # Slash command handlers (play, help, search, language, ...)
-├── events/             # Button & modal controllers for playback UI
-├── src/                # Core services: MusicPlayer, MusicEmbedManager, providers
-├── config.js           # Central configuration + env fallbacks
-├── index.js            # Bot bootstrap, client wiring, voice auto-cleanup
-├── LICENSE             # MIT License
-├── PRIVACY_POLICY.md   # Data handling details
-└── TERMS_OF_SERVICE.md # Acceptable use guidelines
+MIT. See `LICENSE`.
