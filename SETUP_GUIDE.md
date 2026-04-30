@@ -7,7 +7,7 @@
 python --version  # Should be 3.11+
 ```
 
-**That's it!** FFmpeg is now bundled as a Python package (`imageio-ffmpeg`), so no system dependencies are needed.
+**That's it!** FFmpeg and Opus are now bundled as Python packages (`imageio-ffmpeg` and `opuslib`), so no system dependencies are needed.
 
 ### 2. Install Dependencies
 ```bash

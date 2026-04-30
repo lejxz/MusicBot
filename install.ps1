@@ -5,8 +5,8 @@ Usage (PowerShell):
   .\install.ps1 -Run      # create venv and run bot in foreground
   .\install.ps1 -CreateTask # create a Scheduled Task to run at logon
 
-NOTE: FFmpeg is now bundled as a Python package (imageio-ffmpeg)
-No separate system FFmpeg installation required!
+NOTE: FFmpeg and Opus are now bundled as Python packages (imageio-ffmpeg, opuslib)
+No separate system installation required!
 #>
 
 param(

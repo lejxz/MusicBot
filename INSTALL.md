@@ -16,7 +16,7 @@ This guide covers final, tested steps to install and run the Discord Music Bot o
 - A Discord application bot token (from Discord Developer Portal)
 - Git (optional, for cloning; you can also download ZIP)
 
-**Note:** FFmpeg is now bundled as the `imageio-ffmpeg` Python package, so no separate system installation is needed. The bot stores local cache under `./cache` for fast repeat playback.
+**Note:** FFmpeg and Opus are now bundled as Python packages (`imageio-ffmpeg` and `opuslib`), so no separate system installation is needed. The bot stores local cache under `./cache` for fast repeat playback.
 
 ---
 
@@ -39,7 +39,7 @@ sudo apt update
 sudo apt install -y python3 python3-venv python3-pip git
 ```
 
-**Note:** FFmpeg is now bundled with the Python dependencies, so you don't need to install it separately.
+**Note:** FFmpeg and Opus are now bundled with Python dependencies, so you don't need to install them separately.
 
 B. Extract / clone repo and run installer
 
@@ -51,7 +51,7 @@ cd /home/youruser/discord-music-bot
 ./install.sh --run
 ```
 
-The script will create a `venv` in the repo, install `requirements.txt` (including `imageio-ffmpeg`), and copy `.env.example` → `.env` if missing.
+The script will create a `venv` in the repo, install `requirements.txt` (including `imageio-ffmpeg` and `opuslib`), and copy `.env.example` → `.env` if missing.
 
 C. Edit `.env`
 
@@ -78,7 +78,9 @@ The `--systemd` flag creates `/etc/systemd/system/discord-music-bot.service` for
 F. Logs and troubleshooting
 - Tail logs: `sudo journalctl -u discord-music-bot -f` (if systemd), or `tail -f bot.log` if launching in terminal.
 - Common errors: missing `DISCORD_TOKEN` in `.env`, missing Python dependencies (run `pip install -r requirements.txt` again).
-- If FFmpeg still can't be found: `python -c "import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())"` to debug.
+- If FFmpeg or Opus can't be found: 
+  - FFmpeg: `python -c "import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())"`
+  - Opus: `python -c "import opuslib; print(opuslib.__file__)"`
 
 G. 24/7 operation and monitoring
 - A plain terminal session stops when the terminal closes, so use `systemd` for true 24/7 Linux hosting.
@@ -99,7 +101,7 @@ tail -f logs/bot.log
 
 A. Install Python (only requirement!)
 - Install Python 3.11+ from [python.org](https://python.org) (ensure `Add Python to PATH` is checked).
-- **FFmpeg is now bundled as a Python package, so no separate installation needed!**
+- **FFmpeg and Opus are now bundled as Python packages, so no separate installation needed!**
 
 B. Create repo folder and extract
 - Extract the ZIP to `C:\Users\YourUser\discord-music-bot` or clone the repo with Git.
@@ -118,7 +120,7 @@ cd C:\Users\YourUser\discord-music-bot
 python -m venv venv
 # Activate
 venv\Scripts\Activate.ps1
-# Upgrade pip and install deps (including imageio-ffmpeg)
+# Upgrade pip and install deps (including imageio-ffmpeg and opuslib)
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```

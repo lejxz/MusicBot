@@ -1,11 +1,12 @@
 # Core Discord Bot
 discord.py>=2.3.2
 
-# Audio/Music (FFmpeg bundled in imageio-ffmpeg)
+# Audio/Music (FFmpeg & Opus bundled in Python packages)
 yt-dlp>=2024.1.0
 PyNaCl>=1.5.0
 davey>=0.1.0
 imageio-ffmpeg>=0.4.10
+opuslib>=2.0.0
 
 # HTTP Requests
 aiohttp>=3.9.0
