@@ -21,6 +21,10 @@ class Config:
     
     # YouTube
     YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
+    # yt-dlp cookie auth (optional, for restricted YouTube videos)
+    YTDLP_COOKIEFILE = os.getenv("YTDLP_COOKIEFILE")
+    YTDLP_COOKIES_FROM_BROWSER = os.getenv("YTDLP_COOKIES_FROM_BROWSER")
+    YTDLP_COOKIES_BROWSER_PROFILE = os.getenv("YTDLP_COOKIES_BROWSER_PROFILE")
 
     # Spotify
     SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")

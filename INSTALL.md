@@ -57,7 +57,19 @@ C. Edit `.env`
 
 Open `.env` in an editor and set your `DISCORD_TOKEN` and optionally `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, `GENIUS_ACCESS_TOKEN`, and other settings.
 
-D. Test run (terminal)
+For restricted YouTube videos/playlists (age/region/private access via your account), add one of these:
+
+```env
+# Recommended: automatic browser cookie loading
+YTDLP_COOKIES_FROM_BROWSER=edge
+# Optional profile (leave blank for default)
+YTDLP_COOKIES_BROWSER_PROFILE=
+
+# Alternative: exported cookie file
+YTDLP_COOKIEFILE=./cookies.txt
+```
+
+D. Test run (terminal) [optional]
 
 ```bash
 source venv/bin/activate
@@ -131,6 +143,17 @@ D. Prepare `.env`
 copy .env.example .env
 # Edit .env in Notepad or VS Code
 notepad .env
+```
+
+For restricted YouTube videos/playlists, configure one of these in `.env`:
+
+```env
+# Recommended: automatic browser cookie loading
+YTDLP_COOKIES_FROM_BROWSER=edge
+YTDLP_COOKIES_BROWSER_PROFILE=
+
+# Alternative: exported cookie file
+YTDLP_COOKIEFILE=./cookies.txt
 ```
 
 E. Run the bot (PowerShell)

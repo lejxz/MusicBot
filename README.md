@@ -73,6 +73,9 @@ Optional:
 - `SPOTIFY_CLIENT_SECRET`
 - `GENIUS_ACCESS_TOKEN`
 - `YOUTUBE_API_KEY`
+- `YTDLP_COOKIES_FROM_BROWSER` (e.g. `edge`, `chrome`, `firefox`) for automated restricted-video access
+- `YTDLP_COOKIES_BROWSER_PROFILE` (optional profile name/path)
+- `YTDLP_COOKIEFILE` (optional Netscape cookie file path)
 
 ## Running
 

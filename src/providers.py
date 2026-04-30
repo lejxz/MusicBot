@@ -4,6 +4,7 @@ Music providers for YouTube and Spotify with error handling and source selection
 import asyncio
 import aiohttp
 import logging
+import os
 from typing import List, Optional, Tuple, Literal
 from urllib.parse import urlparse, parse_qs, quote_plus
 from .queue import Track
@@ -34,8 +35,35 @@ class YouTubeProvider:
             'socket_timeout': 30,
             'extract_flat': False,  # Get full info
         }
+        self.ydl_opts.update(self._get_cookie_opts())
         self.stream_cache = StreamCache(ttl_hours=24)
         self.search_cache = {}  # Basic search result cache
+
+    def _get_cookie_opts(self) -> dict:
+        """Build yt-dlp cookie options from environment configuration."""
+        cookie_opts = {}
+
+        cookie_file = Config.YTDLP_COOKIEFILE
+        if cookie_file:
+            expanded = os.path.expandvars(os.path.expanduser(cookie_file))
+            if os.path.exists(expanded):
+                cookie_opts['cookiefile'] = expanded
+                logger.info("yt-dlp cookies enabled via cookie file")
+                return cookie_opts
+            logger.warning("Configured YTDLP_COOKIEFILE not found: %s", expanded)
+
+        browser = Config.YTDLP_COOKIES_FROM_BROWSER
+        if browser:
+            # Supports values like: chrome, edge, firefox, brave
+            profile = Config.YTDLP_COOKIES_BROWSER_PROFILE
+            if profile:
+                cookie_opts['cookiesfrombrowser'] = (browser, profile)
+                logger.info("yt-dlp cookies enabled from browser '%s' profile '%s'", browser, profile)
+            else:
+                cookie_opts['cookiesfrombrowser'] = (browser,)
+                logger.info("yt-dlp cookies enabled from browser '%s'", browser)
+
+        return cookie_opts
 
     @staticmethod
     def _is_youtube_url(url: str) -> bool:
