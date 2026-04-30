@@ -280,27 +280,44 @@ class YouTubeProvider:
 
         def _extract_playlist():
             try:
-                with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=False)
+                # Normalize music.youtube.com playlist URLs to the regular youtube domain
+                normalized = url
+                if 'music.youtube.com' in url:
+                    normalized = url.replace('music.youtube.com', 'www.youtube.com')
+
+                # Use flat extraction for playlists to avoid resolving every video upfront
+                ydl_opts_playlist = self.ydl_opts.copy()
+                ydl_opts_playlist.update({
+                    'extract_flat': True,  # do not resolve individual entries
+                    'quiet': True,
+                    'no_warnings': True,
+                })
+
+                with yt_dlp.YoutubeDL(ydl_opts_playlist) as ydl:
+                    info = ydl.extract_info(normalized, download=False)
                     tracks = []
                     entries = info.get("entries", []) or []
-                    
+
                     logger.info(f"YouTube playlist: found {len(entries)} entries")
 
                     for i, entry in enumerate(entries):
                         if not entry:
                             continue
-                        
+
                         # Skip deleted/unavailable videos
                         if entry.get('availability') == 'needs_auth':
                             logger.debug(f"Skipping private video at index {i}")
                             continue
 
+                        # Entries from flat extraction often only include an id
+                        video_id = entry.get('id') or entry.get('url')
+                        video_url = entry.get('webpage_url') or f"https://www.youtube.com/watch?v={video_id}"
+
                         tracks.append(
                             Track(
-                                title=entry.get("title", "Unknown"),
-                                url=entry.get("webpage_url") or entry.get("url") or f"https://www.youtube.com/watch?v={entry.get('id')}",
-                                duration=entry.get("duration", 0),
+                                title=entry.get("title", video_id or "Unknown"),
+                                url=video_url,
+                                duration=entry.get("duration", 0) or 0,
                                 source="youtube",
                                 artist=entry.get("uploader", "Unknown"),
                                 thumbnail=entry.get("thumbnail", ""),
