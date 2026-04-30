@@ -1,11 +1,13 @@
 # Setup & Quick Start Guide
 
-## 🚀 Quick Setup (5 minutes)
+## 🚀 Quick Setup (2 minutes)
 
 ### 1. Prerequisites Check
 ```bash
 python --version  # Should be 3.11+
 ```
+
+**That's it!** FFmpeg is now bundled as a Python package (`imageio-ffmpeg`), so no system dependencies are needed.
 
 ### 2. Install Dependencies
 ```bash

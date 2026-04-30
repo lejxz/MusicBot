@@ -47,6 +47,8 @@ A slash-command Discord music bot with YouTube and Spotify support, queue manage
 
 See [INSTALL.md](INSTALL.md) for full Windows and Linux setup instructions.
 
+**Simplified installation** (no FFmpeg system dependency needed):
+
 Quick start on Linux:
 ```bash
 ./install.sh --run
@@ -56,6 +58,8 @@ Quick start on Windows PowerShell:
 ```powershell
 PowerShell -ExecutionPolicy Bypass -File install.ps1 -Run
 ```
+
+**Why simplified?** FFmpeg is now bundled as a Python package (`imageio-ffmpeg`), so you only need Python 3.11+ installed!
 
 ## Configuration
 

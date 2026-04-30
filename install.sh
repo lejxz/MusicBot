@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Local installer script for the Discord Music Bot
 # Usage (from repository root): ./install.sh
+#
+# NOTE: FFmpeg is now bundled as a Python package (imageio-ffmpeg)
+# No separate system FFmpeg installation required!
 set -euo pipefail
 
 REPO_DIR="$(pwd)"

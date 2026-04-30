@@ -1,29 +1,30 @@
 # Installation and Setup (Windows & Linux)
 
-This guide covers final, tested steps to install and run the Discord Music Bot on both Linux (Debian/Ubuntu-like) and Windows (PowerShell). It includes system dependencies, Python virtual environment setup, environment variables, quick run, and recommended persistent service setup (systemd on Linux, Task Scheduler or NSSM on Windows).
+This guide covers final, tested steps to install and run the Discord Music Bot on both Linux (Debian/Ubuntu-like) and Windows (PowerShell). Installation is now simplified: FFmpeg is bundled as a Python package, so you only need Python and git.
 
 ---
 
 ## Quick summary
-- Linux: recommended method — unzip, run `./install.sh` then optionally `sudo ./install.sh --systemd` to create a systemd service.
-- Windows: create a `venv`, activate it, `pip install -r requirements.txt`, edit `.env`, then run `python index.py`. For persistence, use Task Scheduler or NSSM.
+- **Linux**: `./install.sh` then optionally `sudo ./install.sh --systemd` to create a systemd service.
+- **Windows**: `.\install.ps1 -Run` for quick testing, or `.\install.ps1` to set up with Task Scheduler.
+- **Both**: Python 3.11+ is the only requirement. FFmpeg comes bundled with Python dependencies!
 
 ---
 
 ## Prerequisites (both OSes)
-- Python 3.11+ installed and on PATH
+- **Python 3.11+** installed and on PATH (that's it!)
 - A Discord application bot token (from Discord Developer Portal)
-- `ffmpeg` installed on host (required for audio)
-- `libopus` or equivalent installed (Linux package names vary; Windows ffmpeg builds include opus)
+- Git (optional, for cloning; you can also download ZIP)
 
-Note: The bot stores local cache under `./cache`. The repository includes an `install.sh` for Linux to create a venv and install Python deps.
+**Note:** FFmpeg is now bundled as the `imageio-ffmpeg` Python package, so no separate system installation is needed. The bot stores local cache under `./cache` for fast repeat playback.
 
 ---
 
 ## Files to know
 - `index.py` — main bot launcher
-- `requirements.txt` — Python dependencies
+- `requirements.txt` — Python dependencies (includes `imageio-ffmpeg`)
 - `install.sh` — local installer for Linux (creates `venv` and installs Python deps)
+- `install.ps1` — local installer for Windows (creates `venv` and installs Python deps)
 - `INSTALL.md` — this guide
 - `.env.example` — sample environment file (copy to `.env`)
 
@@ -31,12 +32,14 @@ Note: The bot stores local cache under `./cache`. The repository includes an `in
 
 ## 1) Linux (Debian / Ubuntu / similar)
 
-A. Install system dependencies
+A. Install Python (only system dependency!)
 
 ```bash
 sudo apt update
-sudo apt install -y python3 python3-venv python3-pip ffmpeg libopus-dev git
+sudo apt install -y python3 python3-venv python3-pip git
 ```
+
+**Note:** FFmpeg is now bundled with the Python dependencies, so you don't need to install it separately.
 
 B. Extract / clone repo and run installer
 
@@ -48,7 +51,7 @@ cd /home/youruser/discord-music-bot
 ./install.sh --run
 ```
 
-The script will create a `venv` in the repo, install `requirements.txt`, and copy `.env.example` → `.env` if missing.
+The script will create a `venv` in the repo, install `requirements.txt` (including `imageio-ffmpeg`), and copy `.env.example` → `.env` if missing.
 
 C. Edit `.env`
 
@@ -74,7 +77,8 @@ The `--systemd` flag creates `/etc/systemd/system/discord-music-bot.service` for
 
 F. Logs and troubleshooting
 - Tail logs: `sudo journalctl -u discord-music-bot -f` (if systemd), or `tail -f bot.log` if launching in terminal.
-- Common errors: missing `ffmpeg` (install via apt), missing `DISCORD_TOKEN` in `.env`, missing Python dependencies (`pip install -r requirements.txt`).
+- Common errors: missing `DISCORD_TOKEN` in `.env`, missing Python dependencies (run `pip install -r requirements.txt` again).
+- If FFmpeg still can't be found: `python -c "import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())"` to debug.
 
 G. 24/7 operation and monitoring
 - A plain terminal session stops when the terminal closes, so use `systemd` for true 24/7 Linux hosting.
@@ -93,27 +97,28 @@ tail -f logs/bot.log
 
 ## 2) Windows (PowerShell)
 
-A. Install system dependencies
-- Install Python 3.11+ from python.org (ensure `Add Python to PATH` is checked).
-- Install `ffmpeg`:
-  - Option 1 (recommended): Download a static build of ffmpeg and add its `bin` directory to PATH.
-  - Option 2: Install via package managers (choco) `choco install ffmpeg`.
+A. Install Python (only requirement!)
+- Install Python 3.11+ from [python.org](https://python.org) (ensure `Add Python to PATH` is checked).
+- **FFmpeg is now bundled as a Python package, so no separate installation needed!**
 
 B. Create repo folder and extract
 - Extract the ZIP to `C:\Users\YourUser\discord-music-bot` or clone the repo with Git.
 
-C. Create and activate virtual environment (PowerShell)
+C. Quick one-command install + run (recommended for testing)
 
 ```powershell
 cd C:\Users\YourUser\discord-music-bot
-# Quick one-command install + run (recommended for testing)
 PowerShell -ExecutionPolicy Bypass -File install.ps1 -Run
+```
 
-# Or step-by-step:
+Or step-by-step:
+
+```powershell
+cd C:\Users\YourUser\discord-music-bot
 python -m venv venv
 # Activate
 venv\Scripts\Activate.ps1
-# Upgrade pip and install deps
+# Upgrade pip and install deps (including imageio-ffmpeg)
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
@@ -135,9 +140,9 @@ python index.py
 
 F. Run automatically on Windows startup (two options)
 
-1) Task Scheduler (simple): create a task that runs on user login and starts: `C:\path\to\venv\Scripts\python.exe C:\path\to\index.py`.
+1) **Task Scheduler (simple)**: Create a task that runs on user login and starts: `C:\path\to\venv\Scripts\python.exe C:\path\to\index.py`.
 
-2) NSSM (recommended for services): install NSSM (Non-Sucking Service Manager) and create a Windows service to run the Python executable with `index.py` as the argument.
+2) **NSSM (recommended for services)**: Install NSSM (Non-Sucking Service Manager) and create a Windows service to run the Python executable with `index.py` as the argument.
 
 G. 24/7 operation and monitoring
 - A normal terminal session stops when the terminal closes, so use Task Scheduler or NSSM for 24/7 Windows hosting.

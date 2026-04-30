@@ -18,11 +18,22 @@ logger = logging.getLogger(__name__)
 
 
 def find_ffmpeg_executable() -> Optional[str]:
-    """Locate ffmpeg on PATH or in common Windows install locations."""
+    """Locate ffmpeg on PATH, in imageio-ffmpeg package, or common system install locations."""
+    # 1. Check PATH (system or manually installed FFmpeg)
     ffmpeg_path = shutil.which("ffmpeg")
     if ffmpeg_path:
         return ffmpeg_path
 
+    # 2. Check imageio-ffmpeg package (bundled Python package)
+    try:
+        import imageio_ffmpeg
+        ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+        if ffmpeg_path and Path(ffmpeg_path).exists():
+            return ffmpeg_path
+    except (ImportError, AttributeError, FileNotFoundError):
+        pass
+
+    # 3. Check Windows common installation locations
     local_app_data = os.getenv("LOCALAPPDATA")
     if local_app_data:
         winget_packages = Path(local_app_data) / "Microsoft" / "WinGet" / "Packages"
