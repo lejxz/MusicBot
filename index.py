@@ -196,6 +196,11 @@ class MusicBot(commands.Cog):
     async def ping(self, interaction: discord.Interaction):
         """Ping command"""
         await UtilityCommands.ping(interaction, self.bot)
+
+    @discord.app_commands.command(name="stats", description="Playback diagnostics (dropouts, disconnects, 403s)")
+    async def stats(self, interaction: discord.Interaction):
+        """Stats command"""
+        await UtilityCommands.stats(interaction)
     
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
@@ -224,6 +229,16 @@ async def main():
         await EventHandlers.on_ready(bot)
         await bot.tree.sync()  # Sync slash commands
         logger.info("Synced slash commands")
+        # discord.py doesn't always auto-load libopus; load it explicitly so the
+        # voice encoder path works. FFmpegOpusAudio sends pre-encoded opus, but
+        # some voice ops still need the library loaded.
+        if not discord.opus.is_loaded():
+            for name in ("opus", "libopus.so.0", "libopus.so"):
+                try:
+                    discord.opus.load_opus(name)
+                    break
+                except Exception:
+                    continue
         logger.info("Opus loaded: %s", discord.opus.is_loaded())
     
     resolution = await asyncio.to_thread(resolve_ffmpeg)

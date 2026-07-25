@@ -9,6 +9,7 @@ import os
 import sys
 import subprocess
 import functools
+import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -20,6 +21,19 @@ from config import Config
 
 
 logger = logging.getLogger(__name__)
+
+
+def _ffmpeg_log_has_403(path: str = "ffmpeg-stream.log", tail_bytes: int = 8192) -> bool:
+    """Cheap check: did the last stream's ffmpeg stderr mention a 403?
+    Reads only the tail so it stays O(1) regardless of log size."""
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            size = fh.tell()
+            fh.seek(max(0, size - tail_bytes))
+            return b"403" in fh.read()
+    except Exception:
+        return False
 
 
 class PlaybackState(str, Enum):
@@ -374,12 +388,37 @@ class GuildPlayer:
                     if generation != self._generation:
                         return
 
+                    # ponytail: append-mode stderr log per process; ffmpeg's own
+                    # reconnect/underrun/403 complaints land here for `grep`.
+                    # Rotate manually if it grows; upgrade to logging handler if noisy.
+                    ffmpeg_log = open("ffmpeg-stream.log", "a", buffering=1)
+                    ffmpeg_log.write(
+                        f"\n=== guild {self.guild_id} track '{next_track.title}' ===\n"
+                    )
                     source = await discord.FFmpegOpusAudio.from_probe(
                         stream_url,
                         method="fallback",
-                        before_options="-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
+                        before_options=(
+                            "-reconnect 1 -reconnect_streamed 1 "
+                            "-reconnect_on_network_error 1 -reconnect_on_http_error 4xx,5xx "
+                            "-reconnect_delay_max 5 "
+                            "-rw_timeout 15000000"
+                        ),
                         executable=ffmpeg_path,
+                        stderr=ffmpeg_log,
                     )
+                    # ponytail: close the log fd when this source is cleaned up,
+                    # else one fd leaks per track. Wrap the existing cleanup.
+                    _orig_cleanup = source.cleanup
+                    def _cleanup_with_log(_orig=_orig_cleanup, _fh=ffmpeg_log):
+                        try:
+                            _orig()
+                        finally:
+                            try:
+                                _fh.close()
+                            except Exception:
+                                pass
+                    source.cleanup = _cleanup_with_log
                 except asyncio.CancelledError:
                     if source:
                         try:
@@ -430,6 +469,10 @@ class GuildPlayer:
 
                 try:
                     self.voice_client.play(source, after=_after_playback)
+                    from src import metrics
+                    self._play_start_ts = time.monotonic()
+                    metrics.record("track_start", guild=self.guild_id,
+                                   dur=getattr(next_track, "duration", 0))
                     async with self._state_lock:
                         if generation == self._generation:
                             self._state = PlaybackState.PLAYING
@@ -491,11 +534,25 @@ class GuildPlayer:
                     "Guild %s runtime playback error: %s: %s (exit code: %s)",
                     self.guild_id, type(error).__name__, error, error_code, exc_info=exc_info,
                 )
+                from src import metrics
+                metrics.record("track_error", guild=self.guild_id, code=error_code)
+                if _ffmpeg_log_has_403():
+                    metrics.record("stream_403", guild=self.guild_id)
                 failed_track = self.current_track
                 self._state = PlaybackState.RECOVERING
             else:
                 track_title = self.current_track.title if self.current_track else 'unknown'
                 logger.info("Guild %s finished track: %s", self.guild_id, track_title)
+                from src import metrics
+                metrics.record("track_ok", guild=self.guild_id)
+                # Clean finish but well short of expected duration = silent gap.
+                start = getattr(self, "_play_start_ts", None)
+                dur = getattr(self.current_track, "duration", 0) or 0
+                if start and dur > 0:
+                    actual = time.monotonic() - start
+                    if actual < dur - 5:
+                        metrics.record("playback_gap", guild=self.guild_id,
+                                       expected=round(dur, 1), actual=round(actual, 1))
                 self._state = PlaybackState.IDLE
 
             self.current_track = None

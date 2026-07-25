@@ -2,6 +2,7 @@
 Centralized logging system with colors and filtered events
 """
 import logging
+import re
 import sys
 from logging.handlers import TimedRotatingFileHandler
 from typing import Optional
@@ -153,6 +154,26 @@ def setup_logging(level: int = logging.INFO, log_file: Optional[str] = None) -> 
     
     # Keep voice state at WARNING but filter updates for other members
     logging.getLogger('discord.voice_state').setLevel(logging.WARNING)
+
+    # Scrape voice-WS disconnects into metrics. discord.py exposes no reconnect
+    # hook, so we watch its own logger for "Disconnected from voice ...
+    # Reconnecting in Ns." — the confirmed audio-dropout signal.
+    logging.getLogger('discord.voice_state').addHandler(_VoiceDisconnectHandler())
+
+
+class _VoiceDisconnectHandler(logging.Handler):
+    """Turns discord.voice_state disconnect lines into a metrics event."""
+
+    _RE = re.compile(r"Disconnected from voice.*?Reconnecting in ([\d.]+)s", re.IGNORECASE)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            m = self._RE.search(record.getMessage())
+            if m:
+                from src import metrics
+                metrics.record("voice_disconnect", wait=float(m.group(1)))
+        except Exception:
+            pass  # diagnostics must never break logging
 
 
 def get_logger(name: str) -> logging.Logger:

@@ -67,6 +67,18 @@ class PlayCommand:
         
         return None
 
+    # Title keywords that signal a non-"official audio" variant. Penalized when the
+    # user did NOT ask for them; boosted when they DID (intent-aware, see _score_track).
+    VARIANT_KEYWORDS = (
+        "live", "cover", "remix", "sped up", "speed up", "8-bit", "8bit",
+        "reaction", "karaoke", "instrumental", "lyric", "music video",
+        "trailer", "teaser", "snippet", "1 hour", "loop", "nightcore",
+        "slowed", "reverb", "mv",
+        # dance/performance-video channels — 4K clips, not audio, often unplayable
+        "studio choom", "dance practice", "performance video", "focus cam",
+        "fancam", "focused", "4k",
+    )
+
     @staticmethod
     async def _resolve_youtube_audio(music_player, title: str, artist: str) -> Optional[Track]:
         """Resolve metadata to the best playable YouTube audio track."""
@@ -75,53 +87,89 @@ class PlayCommand:
             search_terms.append(artist.strip())
         search_query = " ".join(term for term in search_terms if term)
 
-        yt_results = await music_player.youtube.search(search_query, limit=5, source="youtube_music")
-        if not yt_results:
-            yt_results = await music_player.youtube.search(search_query, limit=5, source="youtube")
-
-        if not yt_results:
-            return None
-
-        filtered = PlayCommand._filter_covers(yt_results, artist)
-        return filtered[0] if filtered else yt_results[0]
+        ranked = await PlayCommand._search_and_rank(music_player, search_query, artist)
+        return ranked[0] if ranked else None
 
     @staticmethod
-    def _filter_covers(tracks: List[Track], target_artist: str) -> List[Track]:
-        """Filter tracks to prefer originals over covers
-        
-        Returns tracks where uploader/artist name closely matches target artist
+    async def _search_and_rank(
+        music_player, query: str, target_artist: str, target_duration: int = 0
+    ) -> List[Track]:
+        """Search YouTube Music + regular YouTube, merge, rank best-audio-first.
+
+        Never returns empty when any result exists: worst case the least-bad
+        (least-negative) track is still returned. That is the fallback.
         """
-        if not tracks or not target_artist:
-            return tracks
-        
-        target_artist_lower = target_artist.lower().strip()
-        
-        # Score tracks based on artist match
-        scored_tracks = []
-        for track in tracks:
-            uploader = track.artist.lower().strip()
-            
-            # Exact match or official channel keywords
-            if (uploader == target_artist_lower or 
-                'official' in uploader or
-                f"- {target_artist_lower}" in uploader.lower() or
-                target_artist_lower in uploader):
-                score = 100
-            else:
-                # Partial match
-                score = 50 if any(word in uploader for word in target_artist_lower.split()) else 0
-            
-            scored_tracks.append((score, track))
-        
-        # Sort by score (descending) and return tracks
-        scored_tracks.sort(key=lambda x: x[0], reverse=True)
-        
-        # If top scorer has good confidence (100), only return those
-        if scored_tracks and scored_tracks[0][0] >= 100:
-            return [t for s, t in scored_tracks if s >= 100]
-        
-        # Otherwise return top 3
-        return [t for _, t in scored_tracks[:3]]
+        music = await music_player.youtube.search(query, limit=5, source="youtube_music")
+        regular = await music_player.youtube.search(query, limit=5, source="youtube")
+
+        # Merge, dedup by url (music + regular overlap on the same video id)
+        seen = set()
+        merged = []
+        for track in list(music) + list(regular):
+            if track.url in seen:
+                continue
+            seen.add(track.url)
+            merged.append(track)
+
+        if not merged:
+            return []
+
+        scored = [
+            (PlayCommand._score_track(t, query, target_artist, target_duration), t)
+            for t in merged
+        ]
+        # Sort by score desc; tie-break shorter duration first (audio < music video)
+        scored.sort(key=lambda st: (st[0], -(st[1].duration or 10**9)), reverse=True)
+        logger.info("Ranked '%s': top=%s (score=%d)", query, scored[0][1].title, scored[0][0])
+        return [t for _, t in scored]
+
+    @staticmethod
+    def _score_track(track: Track, query: str, target_artist: str, target_duration: int = 0) -> int:
+        """Score a YouTube result. Higher = better 'official audio' match.
+
+        Tiers: Artist - Topic > Official Audio > artist's own channel > other.
+        Variant keywords (live/nightcore/etc) penalize UNLESS the query asked
+        for them, in which case they boost instead. Never rejects — always scorable.
+        """
+        title = (track.title or "").lower()
+        uploader = (track.artist or "").lower().strip()
+        query_l = (query or "").lower()
+        artist_l = (target_artist or "").lower().strip()
+
+        score = 0
+
+        # --- Source tier ---
+        if uploader.endswith("- topic"):
+            score += 2000  # YT Music auto-audio: clean, no video, always playable — win decisively
+        elif "official audio" in title:
+            score += 800
+        elif artist_l and (uploader == artist_l or artist_l in uploader):
+            score += 600  # artist's own channel
+        # else: +0
+
+        if "official" in title or "official" in uploader:
+            score += 100
+
+        # --- Intent-aware variant keywords ---
+        for kw in PlayCommand.VARIANT_KEYWORDS:
+            in_query = kw in query_l
+            in_title = kw in title
+            if in_query:
+                # User explicitly asked for this variant → it must beat the source-tier
+                # bonus, so reward matches hard and penalize the wrong variant hard.
+                score += 1200 if in_title else -600
+            elif in_title:
+                score -= 500  # unwanted variant (music video, lyric, live, ...)
+
+        # --- Duration sanity (only when we know the target length, e.g. from Spotify) ---
+        if target_duration and track.duration:
+            delta = abs(track.duration - target_duration)
+            if delta <= 15:
+                score += 200
+            elif track.duration > 2 * target_duration:
+                score -= 400  # extended / "1 hour" / wrong track
+
+        return score
 
     @staticmethod
     async def play(
@@ -368,13 +416,11 @@ class PlayCommand:
                             logger.info(f"Using Spotify metadata + YouTube audio: {track.title}")
 
                 if track is None and source != 'spotify':
-                    # YouTube search or fallback
-                    yt_results = await music_player.youtube.search(query, limit=5, source='youtube')
-                    if yt_results:
-                        # Filter to prefer originals
-                        artist_from_query = query.split(' - ')[0] if ' - ' in query else query.split(' by ')[0]
-                        filtered = PlayCommand._filter_covers(yt_results, artist_from_query)
-                        track = filtered[0] if filtered else yt_results[0]
+                    # YouTube search: rank music + regular results, best audio first
+                    artist_from_query = query.split(' - ')[0] if ' - ' in query else query.split(' by ')[0]
+                    ranked = await PlayCommand._search_and_rank(music_player, query, artist_from_query)
+                    if ranked:
+                        track = ranked[0]
                         logger.info(f"Found YouTube track: {track.title}")
 
                 if track is None:

@@ -223,13 +223,16 @@ class YouTubeProvider:
         
         def _search_music():
             try:
-                # YouTube Music search options
+                # YouTube Music search. There is no `ytsearchmusic` extractor;
+                # yt-dlp searches YT Music via the music.youtube.com/search URL,
+                # which surfaces "- Topic" clean-audio uploads regular search buries.
                 ydl_opts_music = self.ydl_opts.copy()
-                ydl_opts_music['default_search'] = 'ytsearchmusic'  # Music-specific search
-                
+                ydl_opts_music['playlistend'] = limit  # cap entries; URL search has no count prefix
+
+                from urllib.parse import quote
+                search_url = f"https://music.youtube.com/search?q={quote(query)}"
                 with yt_dlp.YoutubeDL(ydl_opts_music) as ydl:
-                    search_query = f"ytsearchmusic{limit}:{query}"
-                    results = ydl.extract_info(search_query, download=False)
+                    results = ydl.extract_info(search_url, download=False)
                     tracks = []
                     
                     for entry in results.get('entries', []):
