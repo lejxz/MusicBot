@@ -479,7 +479,74 @@ pm2 logs musicbot
 # Linux (terminal)
 tail -f logs/bot.log
 
-# Windows PowerShell
+---
+
+## 7) Testing
+
+Run the full test suite:
+```bash
+python -m pytest tests/ -v --asyncio-mode=auto
+```
+
+Run a focused test file:
+```bash
+python -m pytest tests/test_queue.py -v --asyncio-mode=auto
+```
+
+Run with coverage:
+```bash
+python -m pytest tests/ --cov=src
+```
+
+---
+
+## 8) Project Structure
+
+```text
+commands/          Slash command handlers
+events/            Event handlers and UI buttons
+src/               Core services (player, queue, providers, cache, embeds)
+tests/             Unit tests and integration checks
+index.py           Main bot entry point
+config.py          Environment configuration and localization
+install.sh         Linux installer
+install.ps1        Windows installer
+INSTALL.md         Full setup and usage guide
+requirements.txt   Python dependencies
+.env.example       Example environment file
+```
+
+---
+
+## 9) Advanced Usage
+
+### Custom Commands
+Add new commands in the `commands/` directory:
+```python
+@discord.app_commands.command(name="mycommand")
+async def my_command(interaction: discord.Interaction):
+  pass
+```
+
+Register the command in `index.py` so the bot loads it on startup.
+
+### Custom Localization
+Add a new language in the `LOCALIZATION` dictionary in `config.py`:
+```python
+"de": {  # German
+  "now_playing": "Wird gerade abgespielt",
+  # ... more translations
+},
+```
+
+### Extend Queue Features
+Add new queue behavior in `src/queue.py`:
+```python
+async def special_feature(self):
+  """Your custom feature"""
+  pass
+```
+
 Get-Content .\logs\bot.log -Wait
 ```
 
