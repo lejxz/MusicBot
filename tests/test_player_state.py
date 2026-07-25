@@ -21,27 +21,27 @@ def test_playback_state_values():
 def test_playback_snapshot_invariants():
     track = Track(title="T", url="http://u", duration=100, source="youtube", artist="A")
 
-    s_idle = PlaybackSnapshot(state=PlaybackState.IDLE, track=None, queue_size=0, loop_mode=0)
+    s_idle = PlaybackSnapshot(state=PlaybackState.IDLE, track=None, queue_size=0, loop_mode=0, position=0.0)
     assert not s_idle.is_playing
     assert not s_idle.is_paused
 
-    s_prep = PlaybackSnapshot(state=PlaybackState.PREPARING, track=track, queue_size=1, loop_mode=0)
+    s_prep = PlaybackSnapshot(state=PlaybackState.PREPARING, track=track, queue_size=1, loop_mode=0, position=0.0)
     assert s_prep.is_playing
     assert not s_prep.is_paused
 
-    s_play = PlaybackSnapshot(state=PlaybackState.PLAYING, track=track, queue_size=1, loop_mode=0)
+    s_play = PlaybackSnapshot(state=PlaybackState.PLAYING, track=track, queue_size=1, loop_mode=0, position=0.0)
     assert s_play.is_playing
     assert not s_play.is_paused
 
-    s_pause = PlaybackSnapshot(state=PlaybackState.PAUSED, track=track, queue_size=1, loop_mode=0)
+    s_pause = PlaybackSnapshot(state=PlaybackState.PAUSED, track=track, queue_size=1, loop_mode=0, position=0.0)
     assert s_pause.is_playing
     assert s_pause.is_paused
 
-    s_rec = PlaybackSnapshot(state=PlaybackState.RECOVERING, track=track, queue_size=1, loop_mode=0)
+    s_rec = PlaybackSnapshot(state=PlaybackState.RECOVERING, track=track, queue_size=1, loop_mode=0, position=0.0)
     assert s_rec.is_playing
     assert not s_rec.is_paused
 
-    s_stop = PlaybackSnapshot(state=PlaybackState.STOPPING, track=track, queue_size=0, loop_mode=0)
+    s_stop = PlaybackSnapshot(state=PlaybackState.STOPPING, track=track, queue_size=0, loop_mode=0, position=0.0)
     assert not s_stop.is_playing
     assert not s_stop.is_paused
 

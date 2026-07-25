@@ -110,8 +110,12 @@ class AudioCommands:
                 lyrics = await LyricsManager.fetch_from_genius(query, genius_token)
             
             if not lyrics:
-                title = player.current_track.title if player.current_track else query.split()[0]
-                artist = player.current_track.artist if player.current_track else ""
+                # ponytail: use explicit song param if provided
+                if song:
+                    title, artist = song, ""
+                else:
+                    title = player.current_track.title if player.current_track else query.split()[0]
+                    artist = player.current_track.artist if player.current_track else ""
                 lyrics = await LyricsManager.fetch_from_lrclib(title, artist)
             
             if not lyrics:

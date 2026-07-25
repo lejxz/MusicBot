@@ -7,6 +7,7 @@ import logging
 from src.embeds import MusicEmbedManager
 from src.now_playing import NowPlayingManager
 
+from src.player import PlaybackState
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ class UtilityCommands:
             player = music_player.get_player(interaction.guild_id)
             snapshot = await player.snapshot()
             
-            if not snapshot.track or snapshot.state == "idle":
+            if not snapshot.track or snapshot.state is PlaybackState.IDLE:
                 embed = MusicEmbedManager.create_error_embed("No track is currently playing")
                 await interaction.followup.send(embed=embed)
                 return
@@ -42,8 +43,11 @@ class UtilityCommands:
                 message = await now_playing_manager.send_now_playing(
                     interaction.channel,
                     track,
-                    position=0,
-                    duration=track.duration
+                    position=int(snapshot.position),
+                    duration=track.duration,
+                    queue_size=snapshot.queue_size,
+                    loop_mode=snapshot.loop_mode,
+                    playback_state=snapshot.state,
                 )
                 
                 if message:
@@ -59,6 +63,7 @@ class UtilityCommands:
                 # Show as inline reply
                 embed = MusicEmbedManager.create_now_playing_embed(
                     track,
+                    current_time=int(snapshot.position),
                     playback_state=snapshot.state,
                     queue_size=snapshot.queue_size,
                     loop_mode=snapshot.loop_mode

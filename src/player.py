@@ -51,6 +51,7 @@ class PlaybackSnapshot:
     track: Optional[Track]
     queue_size: int
     loop_mode: int
+    position: float = 0.0
 
     @property
     def is_playing(self) -> bool:
@@ -294,6 +295,8 @@ class GuildPlayer:
         self._advance_lock = asyncio.Lock()
         self._generation = 0
         self._notification_channel = None
+        self._elapsed_before_pause: float = 0.0
+        self._play_start_ts: Optional[float] = None
 
     @property
     def is_playing(self) -> bool:
@@ -316,11 +319,32 @@ class GuildPlayer:
         """Return an atomic snapshot of current playback state."""
         async with self._state_lock:
             q_size = await self.queue.size()
+            
+            # ponytail: wall-clock position drifts on network stalls; upgrade path is FFmpeg -progress pipe
+            dur = getattr(self.current_track, "duration", 0) or 0
+            # RECOVERING still has audio flowing (reconnect), so the clock must keep running.
+            # ponytail: no track == no position; avoids leaking a stale elapsed value after
+            # the many stop/skip/idle paths that reset current_track without touching the clock.
+            if self.current_track is None:
+                pos = 0.0
+            else:
+                pos = self._elapsed_before_pause
+                if self._play_start_ts is not None and self._state in {
+                    PlaybackState.PLAYING,
+                    PlaybackState.RECOVERING,
+                }:
+                    pos += time.monotonic() - self._play_start_ts
+
+
+            if dur > 0:
+                pos = min(pos, float(dur))
+                
             return PlaybackSnapshot(
                 state=self._state,
                 track=self.current_track,
                 queue_size=q_size,
                 loop_mode=self.queue.loop_mode,
+                position=pos,
             )
 
     async def play_next(self, skip_track_repeat: bool = False) -> None:
@@ -471,6 +495,7 @@ class GuildPlayer:
                     self.voice_client.play(source, after=_after_playback)
                     from src import metrics
                     self._play_start_ts = time.monotonic()
+                    self._elapsed_before_pause = 0.0
                     metrics.record("track_start", guild=self.guild_id,
                                    dur=getattr(next_track, "duration", 0))
                     async with self._state_lock:
@@ -592,6 +617,9 @@ class GuildPlayer:
         async with self._state_lock:
             if self.voice_client and self.voice_client.is_playing() and self._state is PlaybackState.PLAYING:
                 self.voice_client.pause()
+                if self._play_start_ts is not None:
+                    self._elapsed_before_pause += time.monotonic() - self._play_start_ts
+                    self._play_start_ts = None
                 self._state = PlaybackState.PAUSED
                 return True
             return False
@@ -601,6 +629,7 @@ class GuildPlayer:
         async with self._state_lock:
             if self.voice_client and self.voice_client.is_paused() and self._state is PlaybackState.PAUSED:
                 self.voice_client.resume()
+                self._play_start_ts = time.monotonic()
                 self._state = PlaybackState.PLAYING
                 return True
             return False

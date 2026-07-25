@@ -13,8 +13,8 @@ INFO_COLOR = discord.Color.blue()
 
 
 def _format_duration(seconds: int) -> str:
-    if seconds is None:
-        return "0:00"
+    if not seconds:
+        return "—"
     seconds = int(seconds)
     hrs, rem = divmod(seconds, 3600)
     mins, secs = divmod(rem, 60)

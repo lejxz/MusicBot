@@ -633,6 +633,30 @@ class SpotifyProvider:
             except Exception as e:
                 logger.warning(f"spotipy track lookup failed for {spotify_url}: {e}")
 
+        token = await self._get_access_token()
+        if token:
+            async with aiohttp.ClientSession() as session:
+                headers = {
+                    'Authorization': f'Bearer {token}',
+                }
+                
+                async with session.get(
+                    f'https://api.spotify.com/v1/tracks/{track_id}',
+                    headers=headers
+                ) as resp:
+                    if resp.status == 200:
+                        item = await resp.json()
+                        track = Track(
+                            title=item.get('name', 'Unknown'),
+                            url=spotify_url,
+                            duration=item.get('duration_ms', 0) // 1000,
+                            source='spotify',
+                            artist=', '.join([artist['name'] for artist in item.get('artists', [])]),
+                            thumbnail=item.get('album', {}).get('images', [{}])[0].get('url', ''),
+                            platform_badge='🎵 Spotify',
+                        )
+                        return track
+
         metadata = await self._fetch_oembed_metadata(spotify_url)
         if metadata:
             title = metadata.get('title', 'Unknown')
@@ -647,32 +671,6 @@ class SpotifyProvider:
                 thumbnail=thumbnail,
                 platform_badge='🎵 Spotify',
             )
-
-        token = await self._get_access_token()
-        if not token:
-            return None
-        
-        async with aiohttp.ClientSession() as session:
-            headers = {
-                'Authorization': f'Bearer {token}',
-            }
-            
-            async with session.get(
-                f'https://api.spotify.com/v1/tracks/{track_id}',
-                headers=headers
-            ) as resp:
-                if resp.status == 200:
-                    item = await resp.json()
-                    track = Track(
-                        title=item.get('name', 'Unknown'),
-                        url=spotify_url,
-                        duration=item.get('duration_ms', 0) // 1000,
-                        source='spotify',
-                        artist=', '.join([artist['name'] for artist in item.get('artists', [])]),
-                        thumbnail=item.get('album', {}).get('images', [{}])[0].get('url', ''),
-                        platform_badge='🎵 Spotify',
-                    )
-                    return track
         
         return None
 

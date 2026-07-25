@@ -41,7 +41,7 @@ async def test_utility_now_playing_delegation_parity():
     interaction_nowplaying.followup.send = AsyncMock()
 
     track = Track(title="Song", url="http://url", duration=200, source="youtube", artist="Artist")
-    snapshot = PlaybackSnapshot(state=PlaybackState.PLAYING, track=track, queue_size=3, loop_mode=0)
+    snapshot = PlaybackSnapshot(state=PlaybackState.PLAYING, track=track, queue_size=3, loop_mode=0, position=10.0)
 
     player = AsyncMock()
     player.snapshot = AsyncMock(return_value=snapshot)
