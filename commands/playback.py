@@ -68,7 +68,7 @@ class PlaybackCommands:
     
     @staticmethod
     async def stop(interaction: discord.Interaction, music_player):
-        """Stop playback and clear queue"""
+        """Stop playback while preserving the queue"""
         await interaction.response.defer()
         
         try:
@@ -77,7 +77,7 @@ class PlaybackCommands:
             
             embed = MusicEmbedManager.create_info_embed(
                 "⏹️ Stopped",
-                "Playback stopped and queue cleared"
+                "Playback stopped. The queue has been preserved."
             )
             await interaction.followup.send(embed=embed)
         

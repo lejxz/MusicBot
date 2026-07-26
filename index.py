@@ -84,6 +84,33 @@ class MusicBot(commands.Cog):
             self.music_player, 
             source=source.lower() if source else None
         )
+
+    @discord.app_commands.command(name="playnext", description="Insert a track at the front of the queue")
+    @discord.app_commands.describe(
+        query="Song name, artist, YouTube URL, or Spotify link",
+        source="Source preference: 'youtube' or 'spotify' (auto-detect if not specified)"
+    )
+    async def playnext(
+        self,
+        interaction: discord.Interaction,
+        query: str,
+        source: str = None
+    ):
+        """Queue a track in front of the current queue"""
+        if source and source.lower() not in ['youtube', 'spotify']:
+            embed = MusicEmbedManager.create_error_embed(
+                "Invalid source. Use 'youtube' or 'spotify' (or leave blank for auto-detect)"
+            )
+            await interaction.response.defer()
+            await interaction.followup.send(embed=embed)
+            return
+
+        await PlayCommand.playnext(
+            interaction,
+            query,
+            self.music_player,
+            source=source.lower() if source else None
+        )
     
     # Playback Commands
     @discord.app_commands.command(name="pause", description="Pause current playback")
@@ -96,7 +123,7 @@ class MusicBot(commands.Cog):
         """Resume command"""
         await PlaybackCommands.resume(interaction, self.music_player)
     
-    @discord.app_commands.command(name="stop", description="Stop playback and clear queue")
+    @discord.app_commands.command(name="stop", description="Stop playback without clearing the queue")
     async def stop(self, interaction: discord.Interaction):
         """Stop command"""
         await PlaybackCommands.stop(interaction, self.music_player)

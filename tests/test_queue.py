@@ -31,6 +31,36 @@ async def test_remove_track(queue_with_tracks):
 
 
 @pytest.mark.asyncio
+async def test_add_track_to_front(empty_queue):
+    """Test inserting a track at the front of the queue."""
+    first = Track(title="First", url="https://example.com/first", duration=180, source="youtube", artist="A")
+    second = Track(title="Second", url="https://example.com/second", duration=180, source="youtube", artist="B")
+
+    await empty_queue.add(first)
+    await empty_queue.add_front(second)
+
+    queued_titles = [track.title for track in await empty_queue.get_all()]
+    assert queued_titles == ["Second", "First"]
+
+
+@pytest.mark.asyncio
+async def test_add_track_after_current_track(empty_queue):
+    """Test inserting a track immediately after the current item."""
+    current = Track(title="Current", url="https://example.com/current", duration=180, source="youtube", artist="A")
+    next_track = Track(title="Next", url="https://example.com/next", duration=180, source="youtube", artist="B")
+    play_next = Track(title="Play Next", url="https://example.com/play-next", duration=180, source="youtube", artist="C")
+
+    await empty_queue.add(current)
+    await empty_queue.add(next_track)
+    empty_queue.current_index = 0
+
+    await empty_queue.add_front(play_next)
+
+    queued_titles = [track.title for track in await empty_queue.get_all()]
+    assert queued_titles == ["Current", "Play Next", "Next"]
+
+
+@pytest.mark.asyncio
 async def test_clear_queue(queue_with_tracks):
     """Test clearing entire queue"""
     await queue_with_tracks.clear()

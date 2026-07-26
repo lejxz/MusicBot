@@ -161,9 +161,10 @@ class UtilityCommands:
                 name="🎵 Core Playback",
                 value="""
                 `/play` - Play a track from YouTube or Spotify
+                `/playnext` - Insert a track at the front of the queue
                 `/pause` - Pause current playback
                 `/resume` - Resume paused playback
-                `/stop` - Stop playback and clear queue
+                `/stop` - Stop playback without clearing the queue
                 `/skip` - Skip current track
                 `/previous` - Play previous track
                 """,

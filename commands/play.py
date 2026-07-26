@@ -183,6 +183,149 @@ class PlayCommand:
             track.duration = yt_track.duration
 
     @staticmethod
+    async def _ensure_voice_connection(interaction, player) -> bool:
+        """Ensure the bot is connected to the user's voice channel."""
+        if not interaction.user.voice:
+            embed = MusicEmbedManager.create_error_embed(
+                "You must be in a voice channel to play music"
+            )
+            await interaction.followup.send(embed=embed)
+            return False
+
+        player.set_notification_channel(interaction.channel)
+
+        if player.voice_client:
+            return True
+
+        try:
+            player.voice_client = await interaction.user.voice.channel.connect(self_deaf=True)
+            logger.info("Connected to voice channel %s in guild %s", interaction.user.voice.channel, interaction.guild_id)
+            return True
+        except Exception as e:
+            logger.exception("Failed to join voice channel")
+            embed = MusicEmbedManager.create_error_embed(
+                f"Failed to join voice channel: {str(e)}"
+            )
+            await interaction.followup.send(embed=embed)
+            return False
+
+    @staticmethod
+    async def _enqueue_tracks(player, tracks: List[Track], *, front: bool = False) -> None:
+        """Queue tracks, optionally inserting them at the front."""
+        if not tracks:
+            return
+
+        if len(tracks) == 1:
+            track = tracks[0]
+            if front:
+                await player.queue.add_front(track)
+            else:
+                await player.queue.add(track)
+            return
+
+        if front:
+            for track in reversed(tracks):
+                await player.queue.add_front(track)
+        else:
+            await player.queue.add_multiple(tracks)
+
+    @staticmethod
+    async def _start_playback_if_needed(player, interaction, *, error_message: str = "Could not start playback") -> bool:
+        """Start playback when the queue is idle."""
+        if player.is_playing:
+            return True
+
+        try:
+            await player.play_next()
+            return True
+        except Exception as e:
+            logger.exception("Failed to start playback")
+            embed = MusicEmbedManager.create_error_embed(f"{error_message}: {str(e)}")
+            await interaction.followup.send(embed=embed)
+            return False
+
+    @staticmethod
+    async def _resolve_spotify_tracks(music_player, query: str) -> List[Track]:
+        """Resolve Spotify playlists/albums/tracks into playable Track objects."""
+        resource_type = PlayCommand._get_spotify_resource_type(query)
+        logger.info("Detected Spotify %s URL: %s", resource_type or "track", query[:50])
+
+        if resource_type == "playlist":
+            tracks = await music_player.spotify.get_playlist_tracks(query, limit=PlayCommand.MAX_SPOTIFY_IMPORT_TRACKS)
+            if not tracks:
+                return []
+            resolved_tracks = []
+            for track in tracks:
+                yt_track = await PlayCommand._resolve_youtube_audio(music_player, track.title, track.artist, track.duration or 0)
+                if yt_track:
+                    PlayCommand._merge_resolved(track, yt_track)
+                    resolved_tracks.append(track)
+            return resolved_tracks
+
+        if resource_type == "album":
+            tracks = await music_player.spotify.get_album_tracks(query, limit=PlayCommand.MAX_SPOTIFY_IMPORT_TRACKS)
+            if not tracks:
+                return []
+            resolved_tracks = []
+            for track in tracks:
+                yt_track = await PlayCommand._resolve_youtube_audio(music_player, track.title, track.artist, track.duration or 0)
+                if yt_track:
+                    PlayCommand._merge_resolved(track, yt_track)
+                    resolved_tracks.append(track)
+            return resolved_tracks
+
+        track = await music_player.spotify.get_track_info(query)
+        if not track:
+            return []
+
+        yt_track = await PlayCommand._resolve_youtube_audio(music_player, track.title, track.artist, track.duration or 0)
+        if not yt_track:
+            return []
+
+        PlayCommand._merge_resolved(track, yt_track)
+        return [track]
+
+    @staticmethod
+    async def _resolve_youtube_tracks(music_player, query: str) -> List[Track]:
+        """Resolve YouTube URL or search query into track objects."""
+        if "list=" in query or "/playlist/" in query.lower():
+            tracks = await music_player.youtube.get_playlist_tracks(query)
+            return tracks or []
+
+        track = await music_player.youtube.search(query, limit=1)
+        return track or []
+
+    @staticmethod
+    async def _resolve_search_track(music_player, query: str, source: Optional[str]) -> Optional[Track]:
+        """Resolve a general search query to a single playable track."""
+        track = None
+
+        if source == 'spotify' or (source is None and Config.PRIMARY_SOURCE == "spotify"):
+            spotify_results = await music_player.spotify.search(query, limit=3)
+            if spotify_results:
+                spotify_track = spotify_results[0]
+                yt_track = await PlayCommand._resolve_youtube_audio(
+                    music_player,
+                    spotify_track.title,
+                    spotify_track.artist,
+                )
+                if yt_track:
+                    yt_track.title = spotify_track.title
+                    yt_track.artist = spotify_track.artist
+                    yt_track.thumbnail = spotify_track.thumbnail or yt_track.thumbnail
+                    track = yt_track
+                    logger.info("Using Spotify metadata + YouTube audio: %s", track.title)
+
+        if track is None and source != 'spotify':
+            artist_from_query = query.split(' - ')[0] if ' - ' in query else query.split(' by ')[0]
+            ranked = await PlayCommand._search_and_rank(music_player, query, artist_from_query)
+            if ranked:
+                track = ranked[0]
+                logger.info("Found YouTube track: %s", track.title)
+
+        return track
+
+    @staticmethod
     async def play(
         interaction: discord.Interaction, 
         query: str, 
@@ -203,255 +346,37 @@ class PlayCommand:
                     interaction.user, interaction.guild_id, source, query)
 
         try:
-            # Check if user is in a voice channel
-            if not interaction.user.voice:
-                embed = MusicEmbedManager.create_error_embed(
-                    "You must be in a voice channel to play music"
-                )
-                await interaction.followup.send(embed=embed)
+            player = music_player.get_player(interaction.guild_id)
+            if not await PlayCommand._ensure_voice_connection(interaction, player):
                 return
 
-            player = music_player.get_player(interaction.guild_id)
-            player.set_notification_channel(interaction.channel)
-
-            # Connect to voice channel if not already connected
-            if not player.voice_client:
-                try:
-                    player.voice_client = await interaction.user.voice.channel.connect(self_deaf=True)
-                    logger.info("Connected to voice channel %s in guild %s", interaction.user.voice.channel, interaction.guild_id)
-                except Exception as e:
-                    logger.exception("Failed to join voice channel")
-                    embed = MusicEmbedManager.create_error_embed(
-                        f"Failed to join voice channel: {str(e)}"
-                    )
-                    await interaction.followup.send(embed=embed)
-                    return
-
-            # Determine if it's a URL or search query
             is_spotify = PlayCommand._is_spotify_url(query)
             is_youtube = PlayCommand._is_youtube_url(query)
-            
+
             if is_spotify:
-                # Handle Spotify URL
-                resource_type = PlayCommand._get_spotify_resource_type(query)
-                logger.info(f"Detected Spotify {resource_type} URL: {query[:50]}")
-                
-                if resource_type == "playlist":
-                    tracks = await music_player.spotify.get_playlist_tracks(
-                        query,
-                        limit=PlayCommand.MAX_SPOTIFY_IMPORT_TRACKS,
-                    )
-                    if not tracks:
-                        embed = MusicEmbedManager.create_error_embed("Could not load Spotify playlist")
-                        await interaction.followup.send(embed=embed)
-                        return
-
-                    resolved_tracks = []
-                    for track in tracks:
-                        yt_track = await PlayCommand._resolve_youtube_audio(music_player, track.title, track.artist, track.duration or 0)
-                        if yt_track:
-                            PlayCommand._merge_resolved(track, yt_track)
-                            resolved_tracks.append(track)
-
-                    if not resolved_tracks:
-                        embed = MusicEmbedManager.create_error_embed("Could not resolve playable tracks from Spotify playlist")
-                        await interaction.followup.send(embed=embed)
-                        return
-
-                    await player.queue.add_multiple(resolved_tracks)
-                    if not player.is_playing:
-                        try:
-                            await player.play_next()
-                        except Exception as e:
-                            logger.exception("Failed to start playback")
-                            embed = MusicEmbedManager.create_error_embed(f"Could not start playback: {str(e)}")
-                            await interaction.followup.send(embed=embed)
-                            return
-
-                    embed = MusicEmbedManager.create_info_embed(
-                        "✅ Playlist Added",
-                        f"Added **{len(resolved_tracks)}** tracks from the Spotify playlist"
-                    )
-                    await interaction.followup.send(embed=embed)
-
-                elif resource_type == "album":
-                    tracks = await music_player.spotify.get_album_tracks(
-                        query,
-                        limit=PlayCommand.MAX_SPOTIFY_IMPORT_TRACKS,
-                    )
-                    if not tracks:
-                        embed = MusicEmbedManager.create_error_embed("Could not load Spotify album")
-                        await interaction.followup.send(embed=embed)
-                        return
-
-                    resolved_tracks = []
-                    for track in tracks:
-                        yt_track = await PlayCommand._resolve_youtube_audio(music_player, track.title, track.artist, track.duration or 0)
-                        if yt_track:
-                            PlayCommand._merge_resolved(track, yt_track)
-                            resolved_tracks.append(track)
-
-                    if not resolved_tracks:
-                        embed = MusicEmbedManager.create_error_embed("Could not resolve playable tracks from Spotify album")
-                        await interaction.followup.send(embed=embed)
-                        return
-
-                    await player.queue.add_multiple(resolved_tracks)
-                    if not player.is_playing:
-                        try:
-                            await player.play_next()
-                        except Exception as e:
-                            logger.exception("Failed to start playback")
-                            embed = MusicEmbedManager.create_error_embed(f"Could not start playback: {str(e)}")
-                            await interaction.followup.send(embed=embed)
-                            return
-
-                    embed = MusicEmbedManager.create_info_embed(
-                        "✅ Album Added",
-                        f"Added **{len(resolved_tracks)}** tracks from the Spotify album"
-                    )
-                    await interaction.followup.send(embed=embed)
-
-                else:
-                    # Track or unknown type
-                    track = await music_player.spotify.get_track_info(query)
-                    if track:
-                        # ponytail: resolve before queueing, pass duration, abort if fail
-                        yt_track = await PlayCommand._resolve_youtube_audio(
-                            music_player, track.title, track.artist, track.duration or 0
-                        )
-                        if not yt_track:
-                            embed = MusicEmbedManager.create_error_embed("Could not resolve playable track from Spotify")
-                            await interaction.followup.send(embed=embed)
-                            return
-
-                        PlayCommand._merge_resolved(track, yt_track)
-
-                        await player.queue.add(track)
-
-                        if not player.is_playing:
-                            try:
-                                await player.play_next()
-                            except Exception as e:
-                                logger.exception("Failed to start playback")
-                                embed = MusicEmbedManager.create_error_embed(f"Could not start playback: {str(e)}")
-                                await interaction.followup.send(embed=embed)
-                                return
-
-                        embed = MusicEmbedManager.create_info_embed(
-                            "✅ Added to Queue",
-                            f"**{track.title}**\nby *{track.artist}*"
-                        )
-                        if track.thumbnail:
-                            embed.set_thumbnail(url=track.thumbnail)
-                        await interaction.followup.send(embed=embed)
-                    else:
-                        embed = MusicEmbedManager.create_error_embed("Could not find Spotify track")
-                        await interaction.followup.send(embed=embed)
-
-            elif is_youtube:
-                # YouTube URL: handle YouTube and YouTube Music links
-                logger.info(f"Detected YouTube URL: {query[:50]}")
-                
-                # Check if it's a playlist
-                if "list=" in query or "/playlist/" in query.lower():
-                    tracks = await music_player.youtube.get_playlist_tracks(query)
-                    if not tracks:
-                        embed = MusicEmbedManager.create_error_embed("Could not load YouTube playlist")
-                        await interaction.followup.send(embed=embed)
-                        return
-
-                    await player.queue.add_multiple(tracks)
-
-                    if not player.is_playing:
-                        try:
-                            await player.play_next()
-                        except Exception as e:
-                            logger.exception("Failed to start playback")
-                            embed = MusicEmbedManager.create_error_embed(f"Could not start playback: {str(e)}")
-                            await interaction.followup.send(embed=embed)
-                            return
-
-                    embed = MusicEmbedManager.create_info_embed(
-                        "✅ Playlist Added",
-                        f"Added **{len(tracks)}** tracks from the YouTube playlist"
-                    )
-                    await interaction.followup.send(embed=embed)
-                else:
-                    # Single video/song: let the provider resolve any YouTube-family URL directly.
-                    track = await music_player.youtube.search(query, limit=1)
-                    
-                    if not track:
-                        embed = MusicEmbedManager.create_error_embed("Could not load YouTube track")
-                        await interaction.followup.send(embed=embed)
-                        return
-
-                    await player.queue.add(track[0])
-
-                    if not player.is_playing:
-                        try:
-                            await player.play_next()
-                        except Exception as e:
-                            logger.exception("Failed to start playback")
-                            embed = MusicEmbedManager.create_error_embed(f"Could not start playback: {str(e)}")
-                            await interaction.followup.send(embed=embed)
-                            return
-
-                    embed = MusicEmbedManager.create_info_embed(
-                        "✅ Added to Queue",
-                        f"**{track[0].title}**\nby *{track[0].artist}*"
-                    )
-                    if track[0].thumbnail:
-                        embed.set_thumbnail(url=track[0].thumbnail)
-                    await interaction.followup.send(embed=embed)
-
-            else:
-                # Search query: use source preference or hybrid approach
-                track = None
-
-                # Try primary source first
-                if source == 'spotify' or (source is None and Config.PRIMARY_SOURCE == "spotify"):
-                    spotify_results = await music_player.spotify.search(query, limit=3)
-                    if spotify_results:
-                        spotify_track = spotify_results[0]
-                        yt_track = await PlayCommand._resolve_youtube_audio(
-                            music_player,
-                            spotify_track.title,
-                            spotify_track.artist,
-                        )
-                        if yt_track:
-                            yt_track.title = spotify_track.title
-                            yt_track.artist = spotify_track.artist
-                            yt_track.thumbnail = spotify_track.thumbnail or yt_track.thumbnail
-                            track = yt_track
-                            logger.info(f"Using Spotify metadata + YouTube audio: {track.title}")
-
-                if track is None and source != 'spotify':
-                    # YouTube search: rank music + regular results, best audio first
-                    artist_from_query = query.split(' - ')[0] if ' - ' in query else query.split(' by ')[0]
-                    ranked = await PlayCommand._search_and_rank(music_player, query, artist_from_query)
-                    if ranked:
-                        track = ranked[0]
-                        logger.info(f"Found YouTube track: {track.title}")
-
-                if track is None:
-                    embed = MusicEmbedManager.create_error_embed("No results found")
+                resolved_tracks = await PlayCommand._resolve_spotify_tracks(music_player, query)
+                if not resolved_tracks:
+                    embed = MusicEmbedManager.create_error_embed("Could not resolve playable track from Spotify")
                     await interaction.followup.send(embed=embed)
                     return
 
-                # Add top result to queue
-                await player.queue.add(track)
-                logger.info("Queued track in guild %s: %s - %s", interaction.guild_id, track.artist, track.title)
-
-                if not player.is_playing:
-                    try:
-                        await player.play_next()
-                    except Exception as e:
-                        logger.exception("Failed to start playback")
-                        embed = MusicEmbedManager.create_error_embed(f"Could not start playback: {str(e)}")
-                        await interaction.followup.send(embed=embed)
+                if len(resolved_tracks) > 1:
+                    await PlayCommand._enqueue_tracks(player, resolved_tracks)
+                    if not await PlayCommand._start_playback_if_needed(player, interaction):
                         return
 
+                    embed = MusicEmbedManager.create_info_embed(
+                        "✅ Playlist Added",
+                        f"Added **{len(resolved_tracks)}** tracks from the Spotify source"
+                    )
+                    await interaction.followup.send(embed=embed)
+                    return
+
+                await PlayCommand._enqueue_tracks(player, resolved_tracks)
+                if not await PlayCommand._start_playback_if_needed(player, interaction):
+                    return
+
+                track = resolved_tracks[0]
                 embed = MusicEmbedManager.create_info_embed(
                     "✅ Added to Queue",
                     f"**{track.title}**\nby *{track.artist}*"
@@ -459,8 +384,139 @@ class PlayCommand:
                 if track.thumbnail:
                     embed.set_thumbnail(url=track.thumbnail)
                 await interaction.followup.send(embed=embed)
+                return
+
+            if is_youtube:
+                resolved_tracks = await PlayCommand._resolve_youtube_tracks(music_player, query)
+                if not resolved_tracks:
+                    embed = MusicEmbedManager.create_error_embed("Could not load YouTube track")
+                    await interaction.followup.send(embed=embed)
+                    return
+
+                if "list=" in query or "/playlist/" in query.lower():
+                    await PlayCommand._enqueue_tracks(player, resolved_tracks)
+                    if not await PlayCommand._start_playback_if_needed(player, interaction):
+                        return
+
+                    embed = MusicEmbedManager.create_info_embed(
+                        "✅ Playlist Added",
+                        f"Added **{len(resolved_tracks)}** tracks from the YouTube playlist"
+                    )
+                    await interaction.followup.send(embed=embed)
+                    return
+
+                await PlayCommand._enqueue_tracks(player, resolved_tracks)
+                if not await PlayCommand._start_playback_if_needed(player, interaction):
+                    return
+
+                track = resolved_tracks[0]
+                embed = MusicEmbedManager.create_info_embed(
+                    "✅ Added to Queue",
+                    f"**{track.title}**\nby *{track.artist}*"
+                )
+                if track.thumbnail:
+                    embed.set_thumbnail(url=track.thumbnail)
+                await interaction.followup.send(embed=embed)
+                return
+
+            track = await PlayCommand._resolve_search_track(music_player, query, source)
+            if track is None:
+                embed = MusicEmbedManager.create_error_embed("No results found")
+                await interaction.followup.send(embed=embed)
+                return
+
+            await PlayCommand._enqueue_tracks(player, [track])
+            if not await PlayCommand._start_playback_if_needed(player, interaction):
+                return
+
+            embed = MusicEmbedManager.create_info_embed(
+                "✅ Added to Queue",
+                f"**{track.title}**\nby *{track.artist}*"
+            )
+            if track.thumbnail:
+                embed.set_thumbnail(url=track.thumbnail)
+            await interaction.followup.send(embed=embed)
 
         except Exception as e:
             logger.exception("/play failed")
+            embed = MusicEmbedManager.create_error_embed(f"Error: {str(e)}")
+            await interaction.followup.send(embed=embed)
+
+    @staticmethod
+    async def playnext(
+        interaction: discord.Interaction,
+        query: str,
+        music_player,
+        source: Optional[str] = None
+    ):
+        """Insert a track at the front of the queue and start playback if needed."""
+        await interaction.response.defer()
+        logger.info("/playnext invoked by %s in guild %s with source=%s: %s",
+                    interaction.user, interaction.guild_id, source, query)
+
+        try:
+            player = music_player.get_player(interaction.guild_id)
+            if not await PlayCommand._ensure_voice_connection(interaction, player):
+                return
+
+            is_spotify = PlayCommand._is_spotify_url(query)
+            is_youtube = PlayCommand._is_youtube_url(query)
+
+            if is_spotify:
+                resolved_tracks = await PlayCommand._resolve_spotify_tracks(music_player, query)
+                if not resolved_tracks:
+                    embed = MusicEmbedManager.create_error_embed("Could not resolve playable track from Spotify")
+                    await interaction.followup.send(embed=embed)
+                    return
+
+                await PlayCommand._enqueue_tracks(player, resolved_tracks, front=True)
+                if not await PlayCommand._start_playback_if_needed(player, interaction):
+                    return
+
+                embed = MusicEmbedManager.create_info_embed(
+                    "✅ Added to Front of Queue",
+                    f"Inserted **{len(resolved_tracks)}** track(s) at the front of the queue"
+                )
+                await interaction.followup.send(embed=embed)
+                return
+
+            if is_youtube:
+                resolved_tracks = await PlayCommand._resolve_youtube_tracks(music_player, query)
+                if not resolved_tracks:
+                    embed = MusicEmbedManager.create_error_embed("Could not load YouTube track")
+                    await interaction.followup.send(embed=embed)
+                    return
+
+                await PlayCommand._enqueue_tracks(player, resolved_tracks, front=True)
+                if not await PlayCommand._start_playback_if_needed(player, interaction):
+                    return
+
+                embed = MusicEmbedManager.create_info_embed(
+                    "✅ Added to Front of Queue",
+                    f"Inserted **{len(resolved_tracks)}** track(s) at the front of the queue"
+                )
+                await interaction.followup.send(embed=embed)
+                return
+
+            track = await PlayCommand._resolve_search_track(music_player, query, source)
+            if track is None:
+                embed = MusicEmbedManager.create_error_embed("No results found")
+                await interaction.followup.send(embed=embed)
+                return
+
+            await PlayCommand._enqueue_tracks(player, [track], front=True)
+            if not await PlayCommand._start_playback_if_needed(player, interaction):
+                return
+
+            embed = MusicEmbedManager.create_info_embed(
+                "✅ Added to Front of Queue",
+                f"**{track.title}**\nby *{track.artist}*"
+            )
+            if track.thumbnail:
+                embed.set_thumbnail(url=track.thumbnail)
+            await interaction.followup.send(embed=embed)
+
+        except Exception as e:
+            logger.exception("/playnext failed")
             embed = MusicEmbedManager.create_error_embed(f"Error: {str(e)}")
             await interaction.followup.send(embed=embed)

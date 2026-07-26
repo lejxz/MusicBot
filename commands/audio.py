@@ -70,7 +70,14 @@ class AudioCommands:
                 await interaction.followup.send(embed=embed)
                 return
             
-            # Seek functionality would be implemented in the audio playback backend
+            success = await player.seek(seconds)
+            if not success:
+                embed = MusicEmbedManager.create_error_embed(
+                    "Could not seek to the requested position"
+                )
+                await interaction.followup.send(embed=embed)
+                return
+
             min_sec = divmod(seconds, 60)
             embed = MusicEmbedManager.create_info_embed(
                 "⏱️ Seek",

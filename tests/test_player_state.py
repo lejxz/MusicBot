@@ -145,7 +145,7 @@ async def test_guild_player_stop():
     assert vc.stopped
     assert player._state == PlaybackState.IDLE
     assert player.current_track is None
-    assert await player.queue.size() == 0
+    assert await player.queue.size() == 1
 
 
 @pytest.mark.asyncio
@@ -166,3 +166,27 @@ async def test_guild_player_disconnect_while_paused():
     assert not player.is_playing
     assert player.current_track is None
     assert player.voice_client is None
+
+
+@pytest.mark.asyncio
+async def test_guild_player_seek_does_not_advance_clock_until_playback_starts():
+    mp = MagicMock(spec=MusicPlayer)
+    player = GuildPlayer(guild_id=1, music_player=mp)
+    vc = FakeVoiceClient()
+    player.voice_client = vc
+
+    player.current_track = Track(title="T", url="http://u", duration=100, source="youtube", artist="A")
+    player._state = PlaybackState.PLAYING
+    player._play_start_ts = 123.0
+    player._elapsed_before_pause = 5.0
+
+    with patch.object(player, "_create_audio_source", new=AsyncMock(return_value=MagicMock())) as mock_source, \
+         patch.object(player, "_cleanup_current_source") as mock_cleanup:
+        mock_source.return_value.cleanup = MagicMock()
+        player._source = MagicMock()
+        success = await player.seek(30)
+
+    assert success is True
+    assert player._play_start_ts is not None
+    assert player._play_start_ts != 123.0
+    mock_cleanup.assert_called_once()

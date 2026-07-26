@@ -297,6 +297,7 @@ class GuildPlayer:
         self._notification_channel = None
         self._elapsed_before_pause: float = 0.0
         self._play_start_ts: Optional[float] = None
+        self._source = None
 
     @property
     def is_playing(self) -> bool:
@@ -398,51 +399,7 @@ class GuildPlayer:
 
                 source = None
                 try:
-                    ffmpeg_path = find_ffmpeg_executable()
-                    if not ffmpeg_path:
-                        raise RuntimeError(
-                            "FFmpeg is required for voice playback but was not found. "
-                            "On Linux, install: sudo apt install ffmpeg libopus0"
-                        )
-
-                    stream_url = await self.music_player.youtube.get_stream_url(next_track.url)
-                    if not stream_url:
-                        raise RuntimeError(f"Could not resolve stream URL for {next_track.url}")
-
-                    if generation != self._generation:
-                        return
-
-                    # ponytail: append-mode stderr log per process; ffmpeg's own
-                    # reconnect/underrun/403 complaints land here for `grep`.
-                    # Rotate manually if it grows; upgrade to logging handler if noisy.
-                    ffmpeg_log = open("ffmpeg-stream.log", "a", buffering=1)
-                    ffmpeg_log.write(
-                        f"\n=== guild {self.guild_id} track '{next_track.title}' ===\n"
-                    )
-                    source = await discord.FFmpegOpusAudio.from_probe(
-                        stream_url,
-                        method="fallback",
-                        before_options=(
-                            "-reconnect 1 -reconnect_streamed 1 "
-                            "-reconnect_on_network_error 1 -reconnect_on_http_error 4xx,5xx "
-                            "-reconnect_delay_max 5 "
-                            "-rw_timeout 15000000"
-                        ),
-                        executable=ffmpeg_path,
-                        stderr=ffmpeg_log,
-                    )
-                    # ponytail: close the log fd when this source is cleaned up,
-                    # else one fd leaks per track. Wrap the existing cleanup.
-                    _orig_cleanup = source.cleanup
-                    def _cleanup_with_log(_orig=_orig_cleanup, _fh=ffmpeg_log):
-                        try:
-                            _orig()
-                        finally:
-                            try:
-                                _fh.close()
-                            except Exception:
-                                pass
-                    source.cleanup = _cleanup_with_log
+                    source = await self._create_audio_source(next_track, generation=generation)
                 except asyncio.CancelledError:
                     if source:
                         try:
@@ -480,19 +437,8 @@ class GuildPlayer:
                     return
 
                 try:
-                    loop = asyncio.get_running_loop()
-                except RuntimeError:
-                    loop = getattr(getattr(self.music_player, "bot", None), "loop", asyncio.get_event_loop())
-
-                def _after_playback(error: Optional[Exception]):
-                    loop.call_soon_threadsafe(
-                        lambda: loop.create_task(
-                            self._finish_playback(generation, error)
-                        )
-                    )
-
-                try:
-                    self.voice_client.play(source, after=_after_playback)
+                    self.voice_client.play(source, after=self._make_after_playback_callback(generation))
+                    self._source = source
                     from src import metrics
                     self._play_start_ts = time.monotonic()
                     self._elapsed_before_pause = 0.0
@@ -532,6 +478,152 @@ class GuildPlayer:
                     await self._notify_playback_failures(failed_tracks)
                 except Exception:
                     pass
+
+    def _cleanup_current_source(self) -> None:
+        """Clean up the current audio source and release its ffmpeg log handle."""
+        source = self._source
+        self._source = None
+        if source is None:
+            return
+        try:
+            source.cleanup()
+        except Exception:
+            pass
+
+    async def _create_audio_source(self, track: Track, generation: int, start_offset: Optional[int] = None):
+        """Prepare an FFmpeg-backed audio source for the given track."""
+        ffmpeg_path = find_ffmpeg_executable()
+        if not ffmpeg_path:
+            raise RuntimeError(
+                "FFmpeg is required for voice playback but was not found. "
+                "On Linux, install: sudo apt install ffmpeg libopus0"
+            )
+
+        stream_url = await self.music_player.youtube.get_stream_url(track.url)
+        if not stream_url:
+            raise RuntimeError(f"Could not resolve stream URL for {track.url}")
+
+        if generation != self._generation:
+            return None
+
+        # ponytail: append-mode stderr log per process; ffmpeg's own
+        # reconnect/underrun/403 complaints land here for `grep`.
+        # Rotate manually if it grows; upgrade to logging handler if noisy.
+        ffmpeg_log = open("ffmpeg-stream.log", "a", buffering=1)
+        ffmpeg_log.write(
+            f"\n=== guild {self.guild_id} track '{track.title}' ===\n"
+        )
+
+        before_options = (
+            "-reconnect 1 -reconnect_streamed 1 "
+            "-reconnect_on_network_error 1 -reconnect_on_http_error 4xx,5xx "
+            "-reconnect_delay_max 5 "
+            "-rw_timeout 15000000"
+        )
+        if start_offset is not None:
+            before_options = f"-ss {int(start_offset)} " + before_options
+
+        source = await discord.FFmpegOpusAudio.from_probe(
+            stream_url,
+            method="fallback",
+            before_options=before_options,
+            executable=ffmpeg_path,
+            stderr=ffmpeg_log,
+        )
+        # ponytail: close the log fd when this source is cleaned up,
+        # else one fd leaks per track. Wrap the existing cleanup.
+        _orig_cleanup = source.cleanup
+        def _cleanup_with_log(_orig=_orig_cleanup, _fh=ffmpeg_log):
+            try:
+                _orig()
+            finally:
+                try:
+                    _fh.close()
+                except Exception:
+                    pass
+        source.cleanup = _cleanup_with_log
+        return source
+
+    def _make_after_playback_callback(self, generation: int):
+        """Build the callback used when Discord finishes playback."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = getattr(getattr(self.music_player, "bot", None), "loop", asyncio.get_event_loop())
+
+        def _after_playback(error: Optional[Exception]):
+            loop.call_soon_threadsafe(
+                lambda: loop.create_task(self._finish_playback(generation, error))
+            )
+
+        return _after_playback
+
+    async def seek(self, position: int) -> bool:
+        """Seek within the current track by restarting playback at a new offset."""
+        if not self.current_track or not self.voice_client:
+            return False
+
+        position = max(0, int(position))
+        if self.current_track.duration and position > self.current_track.duration:
+            position = self.current_track.duration
+
+        async with self._state_lock:
+            if self._state not in {
+                PlaybackState.PLAYING,
+                PlaybackState.PAUSED,
+                PlaybackState.RECOVERING,
+            }:
+                return False
+
+            self._generation += 1
+            generation = self._generation
+            was_paused = self._state is PlaybackState.PAUSED
+            self._elapsed_before_pause = float(position)
+            self._play_start_ts = None
+            self._state = PlaybackState.PLAYING if not was_paused else PlaybackState.PAUSED
+
+        if self.voice_client and (self.voice_client.is_playing() or self.voice_client.is_paused()):
+            self.voice_client.stop()
+
+        self._cleanup_current_source()
+
+        try:
+            source = await self._create_audio_source(self.current_track, generation=generation, start_offset=position)
+        except Exception as e:
+            logger.warning("Guild %s failed to seek to %s: %s", self.guild_id, position, e, exc_info=True)
+            async with self._state_lock:
+                if generation == self._generation:
+                    self._state = PlaybackState.RECOVERING
+            return False
+
+        if source is None or generation != self._generation:
+            self._cleanup_current_source()
+            return False
+
+        try:
+            self.voice_client.play(source, after=self._make_after_playback_callback(generation))
+            self._source = source
+            if not was_paused:
+                self._play_start_ts = time.monotonic()
+        except Exception as e:
+            logger.warning("Guild %s failed to start seeked playback: %s", self.guild_id, e, exc_info=True)
+            self._cleanup_current_source()
+            async with self._state_lock:
+                if generation == self._generation:
+                    self._state = PlaybackState.RECOVERING
+            return False
+
+        if was_paused:
+            try:
+                self.voice_client.pause()
+            except Exception:
+                pass
+
+        async with self._state_lock:
+            if generation == self._generation:
+                self._state = PlaybackState.PAUSED if was_paused else PlaybackState.PLAYING
+
+        return True
 
     async def _finish_playback(self, generation: int, error: Optional[Exception]) -> None:
         """Handle end of playback on the asyncio event loop."""
@@ -581,6 +673,7 @@ class GuildPlayer:
                 self._state = PlaybackState.IDLE
 
             self.current_track = None
+            self._cleanup_current_source()
 
         if failed_track:
             # Advance first; notify only if play_next returned normally. A raise
@@ -635,7 +728,7 @@ class GuildPlayer:
             return False
 
     async def stop(self) -> None:
-        """Stop playback and clear queue"""
+        """Stop playback while preserving the queue."""
         async with self._state_lock:
             self._generation += 1
             self._state = PlaybackState.STOPPING
@@ -643,7 +736,7 @@ class GuildPlayer:
         if self.voice_client and (self.voice_client.is_playing() or self.voice_client.is_paused()):
             self.voice_client.stop()
 
-        await self.queue.clear()
+        self._cleanup_current_source()
 
         async with self._state_lock:
             self.current_track = None
