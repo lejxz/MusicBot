@@ -212,6 +212,17 @@ class PlayCommand:
     @staticmethod
     async def _enqueue_tracks(player, tracks: List[Track], *, front: bool = False) -> None:
         """Queue tracks, optionally inserting them at the front."""
+        if not tracks:
+            return
+
+        if len(tracks) == 1:
+            track = tracks[0]
+            if front:
+                await player.queue.add_front(track)
+            else:
+                await player.queue.add(track)
+            return
+
         if front:
             for track in reversed(tracks):
                 await player.queue.add_front(track)
