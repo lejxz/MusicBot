@@ -51,11 +51,12 @@ class Queue:
             self.tracks.extend(tracks)
 
     async def add_front(self, track: Track) -> None:
-        """Insert a track at the front of the queue."""
+        """Insert a track so it will play next after the current track."""
         async with self._lock:
             if len(self.tracks) >= self.max_size:
                 raise ValueError(f"Queue is full (max {self.max_size})")
-            self.tracks.insert(0, track)
+            insert_at = self.current_index + 1 if self.current_index >= 0 else 0
+            self.tracks.insert(insert_at, track)
 
     async def remove(self, index: int) -> Optional[Track]:
         """Remove track at index"""

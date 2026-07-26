@@ -437,19 +437,7 @@ class GuildPlayer:
                     return
 
                 try:
-                    loop = asyncio.get_running_loop()
-                except RuntimeError:
-                    loop = getattr(getattr(self.music_player, "bot", None), "loop", asyncio.get_event_loop())
-
-                def _after_playback(error: Optional[Exception]):
-                    loop.call_soon_threadsafe(
-                        lambda: loop.create_task(
-                            self._finish_playback(generation, error)
-                        )
-                    )
-
-                try:
-                    self.voice_client.play(source, after=_after_playback)
+                    self.voice_client.play(source, after=self._make_after_playback_callback(generation))
                     self._source = source
                     from src import metrics
                     self._play_start_ts = time.monotonic()
@@ -516,7 +504,7 @@ class GuildPlayer:
             raise RuntimeError(f"Could not resolve stream URL for {track.url}")
 
         if generation != self._generation:
-            raise RuntimeError("stale generation")
+            return None
 
         # ponytail: append-mode stderr log per process; ffmpeg's own
         # reconnect/underrun/403 complaints land here for `grep`.
@@ -556,6 +544,20 @@ class GuildPlayer:
         source.cleanup = _cleanup_with_log
         return source
 
+    def _make_after_playback_callback(self, generation: int):
+        """Build the callback used when Discord finishes playback."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = getattr(getattr(self.music_player, "bot", None), "loop", asyncio.get_event_loop())
+
+        def _after_playback(error: Optional[Exception]):
+            loop.call_soon_threadsafe(
+                lambda: loop.create_task(self._finish_playback(generation, error))
+            )
+
+        return _after_playback
+
     async def seek(self, position: int) -> bool:
         """Seek within the current track by restarting playback at a new offset."""
         if not self.current_track or not self.voice_client:
@@ -577,7 +579,7 @@ class GuildPlayer:
             generation = self._generation
             was_paused = self._state is PlaybackState.PAUSED
             self._elapsed_before_pause = float(position)
-            self._play_start_ts = None if was_paused else time.monotonic()
+            self._play_start_ts = None
             self._state = PlaybackState.PLAYING if not was_paused else PlaybackState.PAUSED
 
         if self.voice_client and (self.voice_client.is_playing() or self.voice_client.is_paused()):
@@ -594,13 +596,15 @@ class GuildPlayer:
                     self._state = PlaybackState.RECOVERING
             return False
 
-        if generation != self._generation:
+        if source is None or generation != self._generation:
             self._cleanup_current_source()
             return False
 
         try:
-            self.voice_client.play(source, after=lambda error: None)
+            self.voice_client.play(source, after=self._make_after_playback_callback(generation))
             self._source = source
+            if not was_paused:
+                self._play_start_ts = time.monotonic()
         except Exception as e:
             logger.warning("Guild %s failed to start seeked playback: %s", self.guild_id, e, exc_info=True)
             self._cleanup_current_source()
@@ -731,6 +735,8 @@ class GuildPlayer:
 
         if self.voice_client and (self.voice_client.is_playing() or self.voice_client.is_paused()):
             self.voice_client.stop()
+
+        self._cleanup_current_source()
 
         async with self._state_lock:
             self.current_track = None
