@@ -96,7 +96,7 @@ class MusicBot(commands.Cog):
         """Resume command"""
         await PlaybackCommands.resume(interaction, self.music_player)
     
-    @discord.app_commands.command(name="stop", description="Stop playback and clear queue")
+    @discord.app_commands.command(name="stop", description="Stop playback without clearing the queue")
     async def stop(self, interaction: discord.Interaction):
         """Stop command"""
         await PlaybackCommands.stop(interaction, self.music_player)

@@ -145,7 +145,7 @@ async def test_guild_player_stop():
     assert vc.stopped
     assert player._state == PlaybackState.IDLE
     assert player.current_track is None
-    assert await player.queue.size() == 0
+    assert await player.queue.size() == 1
 
 
 @pytest.mark.asyncio

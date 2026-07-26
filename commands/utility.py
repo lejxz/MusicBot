@@ -163,7 +163,7 @@ class UtilityCommands:
                 `/play` - Play a track from YouTube or Spotify
                 `/pause` - Pause current playback
                 `/resume` - Resume paused playback
-                `/stop` - Stop playback and clear queue
+                `/stop` - Stop playback without clearing the queue
                 `/skip` - Skip current track
                 `/previous` - Play previous track
                 """,

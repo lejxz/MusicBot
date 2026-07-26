@@ -724,15 +724,13 @@ class GuildPlayer:
             return False
 
     async def stop(self) -> None:
-        """Stop playback and clear queue"""
+        """Stop playback while preserving the queue."""
         async with self._state_lock:
             self._generation += 1
             self._state = PlaybackState.STOPPING
 
         if self.voice_client and (self.voice_client.is_playing() or self.voice_client.is_paused()):
             self.voice_client.stop()
-
-        await self.queue.clear()
 
         async with self._state_lock:
             self.current_track = None
